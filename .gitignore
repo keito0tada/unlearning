@@ -1,3 +1,13 @@
+data/
+model/
+log/
+
+# misc
+.vscode/
+.envrc
+
+###################################################################
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
