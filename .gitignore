@@ -1,6 +1,8 @@
 data/
 model/
 log/
+image/
+temp/
 
 # misc
 .vscode/
