@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data.dataloader import DataLoader
 import time
+import datetime
 from src.model_trainer.model_trainer import ModelTrainer
 from src.log.logger import logger_overwrite, logger_regular
 
@@ -29,7 +30,7 @@ class AttackModelTrainer(ModelTrainer):
 
             # output states
             if index % log_interval == 0:
-                logger_overwrite.info(
+                logger_overwrite.debug(
                     f"{log_label} | Epoch: {epoch} [{index * len(X):6d}] Loss: {loss.item():.6f}"
                 )
 
@@ -52,7 +53,7 @@ class AttackModelTrainer(ModelTrainer):
                 correct_num += pred.eq(y.data.view_as(pred)).sum()
 
         logger_regular.info(
-            f"Mean loss: {test_loss / len(test_dataloader.dataset):.4f}, Accuracy: {correct_num}/{total_num_example} ({100 * correct_num / total_num_example:.0f}%)"
+            f"{log_label} | Mean loss: {test_loss / len(test_dataloader.dataset):.4f}, Accuracy: {correct_num}/{total_num_example} ({100 * correct_num / total_num_example:.0f}%)"
         )
         return correct_num / total_num_example
 
@@ -66,22 +67,27 @@ class AttackModelTrainer(ModelTrainer):
         self.model = self.model.to(self.device)
         self.optimizer_to(self.device)
 
+        confusion_matrixes = []
+
         for epoch in range(training_epochs):
-            start_time = time.process_time()
+            start_time = time.perf_counter()
             self.train(
                 epoch=epoch, train_dataloader=train_dataloader, log_label=log_label
             )
             self.test(test_dataloader=test_dataloader, log_label=log_label)
             tp, tn, fp, fn = self.get_confusion_matrix(test_dataloader, log_label)
+            confusion_matrixes.append((tp, tn, fp, fn))
             logger_regular.info(
                 f"Epoch {epoch} | tp: {tp}, tn: {tn}, fp: {fp}, fn: {fn}"
             )
             logger_regular.info(
-                f"{log_label} | Time taken: {time.process_time() - start_time}"
+                f"{log_label} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
             )
 
         self.model = self.model.to("cpu")
         self.optimizer_to("cpu")
+
+        return confusion_matrixes
 
     def get_confusion_matrix(self, test_dataloader: DataLoader, log_label: str):
         self.model.eval()

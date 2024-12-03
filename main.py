@@ -4,6 +4,8 @@ import torch
 import torchvision
 import matplotlib
 import matplotlib.pyplot as plt
+import torcheval
+from torcheval.metrics.functional import multiclass_accuracy
 
 from src.utils.data_entry_and_processing import (
     get_MNIST_dataloader,
@@ -262,3 +264,22 @@ def test7():
         test_dataloader=test_dataloader,
         log_label="MNIST",
     )
+
+
+def test8():
+    train_dataloader, test_dataloader = get_MNIST_dataloader()
+    labels = torch.Tensor([data[1] for data in train_dataloader.dataset])
+    accuracy = multiclass_accuracy(labels, labels, num_classes=100)
+    print(accuracy.item())
+
+
+def test9():
+    logger_regular.debug("debug")
+    logger_regular.info("info")
+    for i in range(10):
+        logger_overwrite.debug(i)
+    logger_overwrite.info("o info")
+    logger_regular.info("hello")
+
+
+test9()

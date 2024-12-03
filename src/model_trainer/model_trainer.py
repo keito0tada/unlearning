@@ -1,5 +1,6 @@
 import torch
 import time
+import datetime
 from typing import Callable
 
 from src.log.logger import logger_regular, logger_overwrite
@@ -42,7 +43,7 @@ class ModelTrainer:
 
             # output states
             if index % log_interval == 0:
-                logger_overwrite.info(
+                logger_overwrite.debug(
                     f"{log_label} | Epoch: {epoch} [{index * len(X):6d}] Loss: {loss.item():.6f}"
                 )
 
@@ -88,13 +89,13 @@ class ModelTrainer:
         self.optimizer_to(self.device)
 
         for epoch in range(training_epochs):
-            start_time = time.process_time()
+            start_time = time.perf_counter()
             self.train(
                 epoch=epoch, train_dataloader=train_dataloader, log_label=log_label
             )
             self.test(test_dataloader=test_dataloader, log_label=log_label)
             logger_regular.info(
-                f"{log_label} | Time taken: {time.process_time() - start_time}"
+                f"{log_label} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
             )
 
         self.model = self.model.to("cpu")
