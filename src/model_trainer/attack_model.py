@@ -4,6 +4,7 @@ import time
 import datetime
 from src.model_trainer.model_trainer import ModelTrainer
 from src.log.logger import logger_overwrite, logger_regular
+from src.utils.binary_metrics import calc_metrics
 
 
 class AttackModelTrainer(ModelTrainer):
@@ -61,25 +62,36 @@ class AttackModelTrainer(ModelTrainer):
         self,
         train_dataloader: DataLoader,
         test_dataloader: DataLoader,
-        training_epochs=10,
+        training_epochs: int,
         log_label: str = "train",
     ):
         self.model = self.model.to(self.device)
         self.optimizer_to(self.device)
 
-        confusion_matrixes = []
+        metrics = []
 
         for epoch in range(training_epochs):
             start_time = time.perf_counter()
+
             self.train(
                 epoch=epoch, train_dataloader=train_dataloader, log_label=log_label
             )
             self.test(test_dataloader=test_dataloader, log_label=log_label)
-            tp, tn, fp, fn = self.get_confusion_matrix(test_dataloader, log_label)
-            confusion_matrixes.append((tp, tn, fp, fn))
-            logger_regular.info(
-                f"Epoch {epoch} | tp: {tp}, tn: {tn}, fp: {fp}, fn: {fn}"
+
+            output, target = self.get_output_and_target(test_dataloader)
+            accuracy, precision, recall, f1_score, confusion_matrix, auroc = (
+                calc_metrics(output, target)
             )
+            logger_regular.info(
+                f"Epoch {epoch} | Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
+            )
+            logger_regular.info(
+                f"Epoch {epoch} | tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
+            )
+            metrics.append(
+                (accuracy, precision, recall, f1_score, confusion_matrix, auroc)
+            )
+
             logger_regular.info(
                 f"{log_label} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
             )
@@ -87,26 +99,19 @@ class AttackModelTrainer(ModelTrainer):
         self.model = self.model.to("cpu")
         self.optimizer_to("cpu")
 
-        return confusion_matrixes
+        return metrics
 
-    def get_confusion_matrix(self, test_dataloader: DataLoader, log_label: str):
+    def get_output_and_target(
+        self, test_dataloader: DataLoader
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         self.model.eval()
 
-        tp, tn, fp, fn = (0, 0, 0, 0)
+        list_pred_y = []
+        list_target_y = []
         with torch.no_grad():
             for X, y in test_dataloader:
                 X = X.to(self.device)
+                list_pred_y.append(torch.flatten(self.model(X)).cpu())
+                list_target_y.append(y)
 
-                pred_y = self.model(X)
-                pred_y = torch.flatten(pred_y)
-                pred_y = torch.round(pred_y)
-                for index, pred in enumerate(pred_y):
-                    if pred == y[index] == 1:
-                        tp += 1
-                    if pred == y[index] == 0:
-                        tn += 1
-                    if pred == 1 and y[index] == 0:
-                        fp += 1
-                    if pred == 0 and y[index] == 1:
-                        fn += 1
-        return tp, tn, fp, fn
+        return torch.cat(list_pred_y), torch.cat(list_target_y).to(torch.int64)

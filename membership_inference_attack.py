@@ -1,5 +1,6 @@
 import torch
 import torchvision
+import torcheval
 from torch import nn
 import time
 import datetime
@@ -14,10 +15,13 @@ from src.utils.data_entry_and_processing import (
     get_MNIST_dataloader,
 )
 
-from src.log.logger import logger_overwrite, logger_regular, cuda_memory_usage
-from src.utils.misc import now
+from src.log.logger import logger_overwrite, logger_regular, cuda_memory_usage, NOW
+from src.utils.binary_metrics import calc_metrics, BinaryMetrics
 
-DEVICE = "cuda:0"
+matplotlib.use("tkagg")
+
+CUDA_INDEX = 0
+DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_SHADOW_MODELS = 20
 NUM_CHANNELS = 3
@@ -25,7 +29,6 @@ NUM_CLASSES = 100
 BATCH_SIZE = 64
 ATTACK_BATCH_SIZE = 8
 NUM_EPOCHS = 10
-NOW = now()
 
 
 class AttackModel(nn.Module):
@@ -67,6 +70,36 @@ def get_model_trainer() -> ModelTrainer:
         criterion=torch.nn.CrossEntropyLoss(),
         device=DEVICE,
     )
+
+
+def generate_target_model(
+    path_target_model: str, path_in_dataset: str, path_out_dataset: str
+):
+    # dataset
+    train_dataloader, test_dataloader = get_CIFAR100_dataloader(batch_size=BATCH_SIZE)
+
+    in_dataset, out_dataset = torch.utils.data.random_split(
+        train_dataloader.dataset,
+        [
+            int(len(train_dataloader.dataset) / 2),
+            int(len(train_dataloader.dataset) / 2),
+        ],
+    )
+    torch.save(in_dataset, path_in_dataset)
+    logger_regular.info(f"IN dataset is saved at {path_in_dataset}")
+    torch.save(out_dataset, path_out_dataset)
+    logger_regular.info(f"Out dataset is saved at {path_out_dataset}")
+
+    in_dataloader = torch.utils.data.DataLoader(
+        in_dataset, batch_size=BATCH_SIZE, shuffle=True
+    )
+
+    # train target model
+    target_model_trainer = get_model_trainer()
+    target_model_trainer.iterate_train(
+        in_dataloader, test_dataloader, NUM_EPOCHS, "target model"
+    )
+    target_model_trainer.save(path_target_model)
 
 
 def generate_shadow_models(path_shadow_models: str, path_shadow_datasets: str):
@@ -125,7 +158,7 @@ def generate_attack_datasets(
     shadow_datasets = torch.load(path_shadow_datasets)
 
     for target_class in range(NUM_CLASSES):
-        cuda_memory_usage(1)
+        cuda_memory_usage(CUDA_INDEX)
         start_time = time.perf_counter()
         attack_dataset_x = []
         attack_dataset_y = []
@@ -186,13 +219,15 @@ def generate_attack_datasets(
         logger_regular.info(
             f"Attack dataset {target_class} is saved at {path_attack_datasets.format(target_class)}"
         )
-        cuda_memory_usage(1)
+        cuda_memory_usage(CUDA_INDEX)
 
 
 def generate_attack_models(
-    path_attack_datasets: str, path_attack_models: str, path_confusion_matrixes: str
+    path_attack_datasets: str,
+    path_attack_models: str,
+    path_metrics_training_attack_models: str,
 ):
-    confusion_matrixes = []
+    metrics = []
     for target_class in range(NUM_CLASSES):
         start_time = time.perf_counter()
 
@@ -218,10 +253,11 @@ def generate_attack_models(
             attack_dataset_test, batch_size=ATTACK_BATCH_SIZE, shuffle=True
         )
 
-        confusion_matrixes.append(
+        metrics.append(
             attack_model_trainer.iterate_train(
                 attack_train_dataloader,
                 attack_test_dataloader,
+                NUM_EPOCHS,
                 log_label="Attack model training",
             )
         )
@@ -231,37 +267,10 @@ def generate_attack_models(
             f"Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
         )
 
-    torch.save(confusion_matrixes, path_confusion_matrixes)
-
-
-def generate_target_model(
-    path_target_model: str, path_in_dataset: str, path_out_dataset: str
-):
-    # dataset
-    train_dataloader, test_dataloader = get_CIFAR100_dataloader(batch_size=BATCH_SIZE)
-
-    in_dataset, out_dataset = torch.utils.data.random_split(
-        train_dataloader.dataset,
-        [
-            int(len(train_dataloader.dataset) / 2),
-            int(len(train_dataloader.dataset) / 2),
-        ],
+    torch.save(metrics, path_metrics_training_attack_models)
+    logger_regular.info(
+        f"Metrics when training attack models is saved at {path_metrics_training_attack_models}"
     )
-    torch.save(in_dataset, path_in_dataset)
-    logger_regular.info(f"IN dataset is saved at {path_in_dataset}")
-    torch.save(out_dataset, path_out_dataset)
-    logger_regular.info(f"Out dataset is saved at {path_out_dataset}")
-
-    in_dataloader = torch.utils.data.DataLoader(
-        in_dataset, batch_size=BATCH_SIZE, shuffle=True
-    )
-
-    # train target model
-    target_model_trainer = get_model_trainer()
-    target_model_trainer.iterate_train(
-        in_dataloader, test_dataloader, NUM_EPOCHS, "target model"
-    )
-    target_model_trainer.save(path_target_model)
 
 
 def attack(
@@ -269,6 +278,7 @@ def attack(
     path_in_dataset: str,
     path_out_dataset: str,
     path_attack_models: str,
+    path_attack_output_and_target_datasets: str,
 ):
     # load target model
     target_model_trainer = get_model_trainer()
@@ -283,7 +293,7 @@ def attack(
         out_dataset, batch_size=1, shuffle=True
     )
 
-    tps, tns, fps, fns = (0, 0, 0, 0)
+    attack_output_and_target_datasets = []
     # attack
     for target_class in range(NUM_CLASSES):
         logger_regular.info(f"Class {target_class}")
@@ -338,27 +348,40 @@ def attack(
         attack_dataloader = torch.utils.data.DataLoader(
             attack_dataset, batch_size=BATCH_SIZE, shuffle=True
         )
+
         attack_model_trainer.model = attack_model_trainer.model.to(DEVICE)
-        tp, tn, fp, fn = attack_model_trainer.get_confusion_matrix(
-            attack_dataloader, log_label="confusion matrix"
+        output, target = attack_model_trainer.get_output_and_target(attack_dataloader)
+        accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
+            output, target
         )
-        tps += tp
-        tns += tn
-        fps += fp
-        fns += fn
-        logger_regular.info(f"tp: {tp}, tn: {tn}, fp: {fp}, fn: {fn}")
-        # logger_regular.info(
-        #     f"recall: {tp / (tp+fn)}, precision: {tp/(tp+fp)}, accuracy: {(tp+tn)/ (tp+fp+tn+fn)}"
-        # )
-    logger_regular.info("Whole result")
-    logger_regular.info(f"tp: {tps}, tn: {tns}, fp: {fps}, fn: {fns}")
-    # logger_regular.info(
-    #     f"recall: {tps / (tps+fns)}, precision: {tps/(tps+fps)}, accuracy: {(tps+tns)/ (tps+fps+tns+fns)}"
-    # )
+        logger_regular.info(
+            f"Class: {target_class} | Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
+        )
+        logger_regular.info(
+            f"Class: {target_class} | tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
+        )
+        attack_output_and_target_datasets.append((output, target))
+
+    accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
+        torch.cat([output for output, _ in attack_output_and_target_datasets]),
+        torch.cat([target for _, target in attack_output_and_target_datasets]),
+    )
+    logger_regular.info(
+        f"Whole | Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
+    )
+    logger_regular.info(
+        f"Whole | tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
+    )
+    torch.save(
+        attack_output_and_target_datasets, path_attack_output_and_target_datasets
+    )
+    logger_regular.info(
+        f"Attack output and target datasets are saved at {path_attack_output_and_target_datasets}"
+    )
 
 
 def membership_inference_attack():
-    DATETIME = "2024-12-02-16:05:14"
+    DATETIME = NOW
     PATH_TARGET_MODEL = f"model/target_model_{DATETIME}.pt"
     PATH_IN_TARGET_DATASET = f"data/in_dataset_{DATETIME}.pt"
     PATH_OUT_TARGET_DATASET = f"data/out_dataset_{DATETIME}.pt"
@@ -368,75 +391,82 @@ def membership_inference_attack():
 
     PATH_ATACK_DATASETS = f"data/attack_dataset_{{}}_{DATETIME}.pt"
 
-    PATH_ATTACK_MODELS = f"model/attack_model_{{}}_{NOW}.pt"
-    PATH_CONFUSION_MATRIXES = f"temp/confusion_matrixes_{NOW}.pt"
+    PATH_ATTACK_MODELS = f"model/attack_model_{{}}_{DATETIME}.pt"
+    PATH_METRICS_TRAINING_ATTACK_MODELS = (
+        f"data/metrics_training_attack_models_{DATETIME}.pt"
+    )
 
-    # PATH_TARGET_MODEL = f"model/target_model_2024-12-02-08:49:25.pt"
-    # PATH_IN_TARGET_DATASET = f"data/in_dataset_2024-12-02-08:49:25.pt"
-    # PATH_OUT_TARGET_DATASET = f"data/out_dataset_2024-12-02-08:49:25.pt"
+    PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS = (
+        f"data/attack_output_and_target_datasets_{DATETIME}.pt"
+    )
+
+    # PATH_TARGET_MODEL = f"model/target_model_2024-12-02-16:05:14.pt"
+    # PATH_IN_TARGET_DATASET = f"data/in_dataset_2024-12-02-16:05:14.pt"
+    # PATH_OUT_TARGET_DATASET = f"data/out_dataset_2024-12-02-16:05:14.pt"
 
     # PATH_SHADOW_MODELS = f"model/shadow_model_{{}}_2024-12-02-08:49:25.pt"
     # PATH_SHADOW_DATASETS = f"data/shadow_dataset_2024-12-02-08:49:25.pt"
 
     # PATH_ATACK_DATASETS = f"data/attack_dataset_{{}}_2024-12-02-08:49:25.pt"
 
-    # PATH_ATTACK_MODELS = f"model/attack_model_{{}}_2024-12-02-08:49:25.pt"
+    # PATH_ATTACK_MODELS = f"model/attack_model_{{}}_2024-12-03-03:23:16.pt"
 
-    start_time = time.process_time()
+    start_time = time.perf_counter()
 
-    # generate_target_model(
-    #     PATH_TARGET_MODEL, PATH_IN_TARGET_DATASET, PATH_OUT_TARGET_DATASET
-    # )
-    # generate_shadow_models(PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS)
-    # generate_attack_datasets(
-    #     PATH_ATACK_DATASETS, PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS
-    # )
-    generate_attack_models(
-        PATH_ATACK_DATASETS, PATH_ATTACK_MODELS, PATH_CONFUSION_MATRIXES
+    generate_target_model(
+        PATH_TARGET_MODEL, PATH_IN_TARGET_DATASET, PATH_OUT_TARGET_DATASET
     )
-    # attack(
-    #     PATH_TARGET_MODEL,
-    #     PATH_IN_TARGET_DATASET,
-    #     PATH_OUT_TARGET_DATASET,
-    #     PATH_ATTACK_MODELS,
-    # )
+    generate_shadow_models(PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS)
+    generate_attack_datasets(
+        PATH_ATACK_DATASETS, PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS
+    )
+    generate_attack_models(
+        PATH_ATACK_DATASETS, PATH_ATTACK_MODELS, PATH_METRICS_TRAINING_ATTACK_MODELS
+    )
+    attack(
+        PATH_TARGET_MODEL,
+        PATH_IN_TARGET_DATASET,
+        PATH_OUT_TARGET_DATASET,
+        PATH_ATTACK_MODELS,
+        PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS,
+    )
 
-    logger_regular.info(f"Whole time taken: {time.process_time() - start_time}")
+    logger_regular.info(
+        f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
 
 
-def check_attack_dataset():
-    PATH_ATACK_DATASETS = f"data/attack_dataset_{{}}_2024-12-02-08:49:25.pt"
+def show_metrics_training_attack_model():
+    PATH_METRICS_TRAINING_ATTACK_MODELS = (
+        f"data/metrics_training_attack_models_2024-12-04-10:01:35.pt"
+    )
+    PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS = (
+        f"data/attack_target_model_datasets_2024-12-04-10:01:35.pt"
+    )
+
+    ig, axes = plt.subplots(3, 3, sharex="all")
+
+    metrics = torch.load(PATH_METRICS_TRAINING_ATTACK_MODELS)
+    confusion_matrixes = []
 
     for target_class in range(NUM_CLASSES):
-        attack_dataset = torch.load(PATH_ATACK_DATASETS.format(target_class))
-        logger_regular.info(
-            f"1: {len([1 for X, y in attack_dataset if y == 1])}, 0: {len([1 for X, y in attack_dataset if y == 0])}"
-        )
+        accuracy = [metric[0] for metric in metrics[target_class]]
+        precision = [metric[1] for metric in metrics[target_class]]
+        recall = [metric[2] for metric in metrics[target_class]]
+        f1_score = [metric[3] for metric in metrics[target_class]]
+        confusion_matrix = [metric[4] for metric in metrics[target_class]]
+        auroc = [metric[5] for metric in metrics[target_class]]
 
+        axes[1][0].plot(accuracy, label=f"Class {target_class}")
+        axes[1][1].plot(precision, label=f"Class {target_class}")
+        axes[2][2].plot(recall, label=f"Class {target_class}")
+        axes[2][0].plot(f1_score, label=f"Class {target_class}")
+        axes[2][1].plot(auroc, label=f"Class {target_class}")
 
-def check_confusion_matrix():
-    PATH_CONFUSION_MATRIXES = "temp/confusion_matrixes_2024-12-03-03:23:16.pt"
-
-    confusion_matrixes = torch.load(PATH_CONFUSION_MATRIXES)
-
-    fig, axes = plt.subplots(2, 3, sharex="all")
-
-    for i in range(NUM_CLASSES):
-        accuracy = []
-        precision = []
-        recall = []
-
-        for tp, tn, fp, fn in confusion_matrixes[i]:
-            accuracy.append((tp + tn) / (tp + tn + fn + fp))
-            precision.append(None if tp + fp == 0 else tp / (tp + fp))
-            recall.append(None if tp + fn == 0 else tp / (tp + fn))
-
-        axes[1][0].plot(accuracy, label=f"Class {i}")
-        axes[1][1].plot(precision, label=f"Class {i}")
-        axes[1][2].plot(recall, label=f"Class {i}")
+        confusion_matrixes.append(confusion_matrix)
 
     axes[1][0].set_xlim([-1, 10])
-    axes[1][2].legend(
+    axes[2][2].legend(
         loc="upper left",
         bbox_to_anchor=(
             1.02,
@@ -447,16 +477,28 @@ def check_confusion_matrix():
     axes[1][0].set_title("Accuracy of each class")
     axes[1][0].set_xlabel("Epoch")
     axes[1][0].set_ylabel("Accuracy")
+    axes[1][0].set_ylim([0, 1])
     axes[1][1].set_title("Precision of each class")
     axes[1][1].set_xlabel("Epoch")
     axes[1][1].set_ylabel("Precision")
-    axes[1][2].set_title("Recall of each class")
-    axes[1][2].set_xlabel("Epoch")
-    axes[1][2].set_ylabel("Recall")
+    axes[1][1].set_ylim([0, 1])
+    axes[2][2].set_title("Recall of each class")
+    axes[2][2].set_xlabel("Epoch")
+    axes[2][2].set_ylabel("Recall")
+    axes[2][2].set_ylim([0, 1])
+    axes[2][0].set_title("F1-Score of each class")
+    axes[2][0].set_xlabel("Epoch")
+    axes[2][0].set_ylabel("F1-Score")
+    axes[2][0].set_ylim([0, 1])
+    axes[2][1].set_title("Auroc of each class")
+    axes[2][1].set_xlabel("Epoch")
+    axes[2][1].set_ylabel("Auroc")
+    axes[2][1].set_ylim([0, 1])
 
     whole_accuracy = []
     whole_precision = []
     whole_recall = []
+    whole_f1_score = []
     whole_tp = []
     whole_tn = []
     whole_fp = []
@@ -464,24 +506,31 @@ def check_confusion_matrix():
     for i in range(NUM_EPOCHS):
         tps, tns, fps, fns = 0, 0, 0, 0
         for j in range(NUM_CLASSES):
-            tp, tn, fp, fn = confusion_matrixes[j][i]
+            tp = confusion_matrixes[j][i][1][1]
+            fn = confusion_matrixes[j][i][1][0]
+            fp = confusion_matrixes[j][i][0][1]
+            tn = confusion_matrixes[j][i][0][0]
             tps += tp
             tns += tn
             fps += fp
             fns += fn
-        whole_accuracy.append((tps + tns) / (tps + tns + fps + fns))
-        whole_precision.append(tps / (tps + fps))
-        whole_recall.append(tps / (tps + fns))
+        binary_metrics = BinaryMetrics(tps, fns, fps, tns)
+        whole_accuracy.append(binary_metrics.accuracy())
+        whole_precision.append(binary_metrics.precision())
+        whole_recall.append(binary_metrics.recall())
+        whole_f1_score.append(binary_metrics.f1_score())
         whole_tp.append(tps)
         whole_tn.append(tns)
         whole_fp.append(fps)
         whole_fn.append(fns)
-        logger_regular.info(f"tp: {tps}, tn: {tns}, fp: {fps}, fn: {fns}")
+
     axes[0][0].set_title("Metrics on each epoch")
     axes[0][0].set_xlabel("Epoch")
+    axes[0][0].set_ylim([0, 1])
     axes[0][0].plot(whole_accuracy, label="Accuracy")
     axes[0][0].plot(whole_precision, label="Precision")
     axes[0][0].plot(whole_recall, label="Recall")
+    axes[0][0].plot(whole_f1_score, label="F1 Score")
     axes[0][0].legend()
 
     axes[0][1].set_title("Confusion matrix on each epoch")
@@ -492,10 +541,85 @@ def check_confusion_matrix():
     axes[0][1].bar(range(NUM_EPOCHS), whole_fn, label="fn")
     axes[0][1].legend()
 
-    plt.suptitle("MIA to resnet18 on CIFAR100")
+    attack_output_and_target_datasets = torch.load(
+        PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS
+    )
+    accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
+        torch.cat([output for output, _ in attack_output_and_target_datasets]),
+        torch.cat([target for _, target in attack_output_and_target_datasets]),
+    )
+    axes[0][2].set_title("Result of attacking a target model")
+    axes[0][2].axis("off")
+    table = axes[0][2].table(
+        cellText=[
+            [
+                f"{accuracy:.4f}",
+                f"{precision:.4f}",
+                f"{recall:.4f}",
+                f"{f1_score:.4f}",
+                f"{auroc:.4f}",
+            ]
+        ],
+        colLabels=["Accuracy", "Precision", "Recall", "F1 Score", "AUROC"],
+        loc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(12)
 
-    matplotlib.use("tkagg")
+    axes[1][2].set_title("Result of attacking a target model")
+    axes[1][2].axis("off")
+    table = axes[1][2].table(
+        cellText=[
+            [
+                confusion_matrix[1][1].item(),
+                confusion_matrix[1][0].item(),
+                confusion_matrix[0][1].item(),
+                confusion_matrix[0][0].item(),
+            ]
+        ],
+        colLabels=["tp", "fn", "fp", "tn"],
+        loc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(12)
+
+    plt.suptitle("MIA to resnet18 on MNIST")
     plt.show()
 
 
-check_confusion_matrix()
+def attack_result():
+    PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS = (
+        f"data/attack_target_model_datasets_2024-12-04-06:15:30.pt"
+    )
+
+    datasets = torch.load(PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS)
+
+    start_time = time.perf_counter()
+    for index, (output, target) in enumerate(datasets):
+        accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
+            output, target.to(torch.int64)
+        )
+        logger_regular.info(
+            f"Class: {index} | Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
+        )
+        print(confusion_matrix)
+        logger_regular.info(
+            f"tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
+        )
+
+    accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
+        torch.cat([output for output, _ in datasets]),
+        torch.cat([target for _, target in datasets]).to(torch.int64),
+    )
+    logger_regular.info(
+        f"Whole: Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
+    )
+    logger_regular.info(
+        f"tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
+    )
+    logger_regular.info(
+        f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
+
+
+membership_inference_attack()

@@ -2,6 +2,7 @@ import torch
 from torchvision import datasets, transforms
 import copy, random
 import medmnist
+from src.log.logger import logger_regular
 
 # Transform image to tensor and normalize features from [0,255] to [0,1]
 TRANSFORM = transforms.Compose(
@@ -19,6 +20,7 @@ def get_MNIST_dataset():
     test_dataset = datasets.MNIST(
         "data", download=True, train=False, transform=TRANSFORM
     )
+    logger_regular.info("get MNIST dataset")
     return train_dataset, test_dataset
 
 
@@ -30,6 +32,7 @@ def get_MNIST_dataloader(batch_size: int = 60):
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=batch_size, shuffle=True
     )
+    logger_regular.info(f"get MNIST dataloader | batch size: {batch_size}")
     return train_loader, test_loader
 
 
@@ -40,6 +43,7 @@ def get_CIFAR100_dataset():
     test_dataset = datasets.CIFAR100(
         "data", download=True, train=False, transform=TRANSFORM
     )
+    logger_regular.info("get CIFAR100 dataset")
     return train_dataset, test_dataset
 
 
@@ -51,6 +55,7 @@ def get_CIFAR100_dataloader(batch_size: int = 64):
     test_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=batch_size, shuffle=True
     )
+    logger_regular.info(f"get CIFAR100 dataloader | batch size: {batch_size}")
     return train_loader, test_loader
 
 

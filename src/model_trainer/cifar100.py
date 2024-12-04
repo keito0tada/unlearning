@@ -29,7 +29,7 @@ class CIFAR100ModelTrainer(ModelTrainer):
 
             # output states
             if index % log_interval == 0:
-                logger_overwrite.info(
+                logger_overwrite.debug(
                     f"{log_label} | Epoch: {epoch} [{index * len(X):6d}] Loss: {loss.item():.6f}"
                 )
 
