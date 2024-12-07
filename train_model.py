@@ -71,5 +71,3 @@ def train_resnet18_on_CIFAR100():
     )
     model_trainer.save(path=PATH_MODEL)
 
-
-train_resnet18_on_CIFAR100()

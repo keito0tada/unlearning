@@ -9,6 +9,7 @@ from torcheval.metrics.functional import multiclass_accuracy
 
 from src.utils.data_entry_and_processing import (
     get_MNIST_dataloader,
+    get_MNIST_dataset,
     get_mnist_unlearning_threes_dataloader,
     get_MedMNIST_dataloader,
 )
@@ -282,4 +283,8 @@ def test9():
     logger_regular.info("hello")
 
 
-test9()
+def test10():
+    train_dataset, _ = get_MNIST_dataset()
+    for i in range(len(train_dataset)):
+        print(train_dataset[i])
+        return

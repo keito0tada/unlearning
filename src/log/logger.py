@@ -26,6 +26,6 @@ logger_overwrite = getLogger("overwrite")
 
 
 def cuda_memory_usage(index: int):
-    logger_regular.info(
+    logger_regular.debug(
         f"cuda:{index} | total: {torch.cuda.get_device_properties(index).total_memory/1024/1024/1024}GB, free: {torch.cuda.memory_reserved(index)/1024/1024/1024}GB, used: {torch.cuda.memory_allocated(index)/1024/1024/1024}GB"
     )

@@ -29,11 +29,9 @@ class ModelTrainer:
         self.model.train()
 
         for index, (X, y) in enumerate(train_dataloader):
-            # move data to device
             X = X.to(self.device)
             y = y.to(self.device)
 
-            # train
             self.optimizer.zero_grad()
             pred_y = self.model(X)
             y = y.squeeze()
@@ -41,7 +39,6 @@ class ModelTrainer:
             loss.backward()
             self.optimizer.step()
 
-            # output states
             if index % log_interval == 0:
                 logger_overwrite.debug(
                     f"{log_label} | Epoch: {epoch} [{index * len(X):6d}] Loss: {loss.item():.6f}"
@@ -53,6 +50,8 @@ class ModelTrainer:
         test_loss = 0
         total_num_example = 0
         correct_num = 0
+        top_5_correct_num = 0
+        top_10_correct_num = 0
 
         with torch.no_grad():
             for X, y in test_dataloader:
@@ -60,43 +59,51 @@ class ModelTrainer:
                 y = y.to(self.device)
 
                 pred_y = self.model(X)
-                total_num_example += y.size()[0]
                 y = y.squeeze()
+                total_num_example += y.size()
                 test_loss += self.criterion(pred_y, y).item()
                 _, pred_class = torch.topk(pred_y, 1, dim=1, largest=True, sorted=True)
                 for index, target_class in enumerate(y):
                     if target_class in pred_class[index]:
                         correct_num += 1
+                _, pred_class = torch.topk(pred_y, 5, dim=1, largest=True, sorted=True)
+                for index, target_class in enumerate(y):
+                    if target_class in pred_class[index]:
+                        top_5_correct_num += 1
+                _, pred_class = torch.topk(pred_y, 10, dim=1, largest=True, sorted=True)
+                for index, target_class in enumerate(y):
+                    if target_class in pred_class[index]:
+                        top_10_correct_num += 1
 
         logger_regular.info(
-            f"Mean loss: {test_loss / len(test_dataloader.dataset):.4f}, Accuracy: {correct_num}/{total_num_example} ({100 * correct_num / total_num_example:.0f}%)"
+            f"{log_label} | Mean loss: {test_loss / len(test_dataloader.dataset):.4f}, Accuracy: {correct_num}/{total_num_example} ({100 * correct_num / total_num_example:.0f}%)"
+        )
+        logger_regular.info(
+            f"{log_label} | top-5 accuracy: {top_5_correct_num}/{total_num_example} ({top_5_correct_num / total_num_example}%), top-10 accuracy: {top_10_correct_num}/{total_num_example} ({top_10_correct_num/total_num_example}%)"
         )
         return correct_num / total_num_example
-
-    def get_confusion_matrix(
-        self, test_dataloader: torch.utils.data.DataLoader, log_label: str
-    ):
-        pass
 
     def iterate_train(
         self,
         train_dataloader: torch.utils.data.DataLoader,
         test_dataloader: torch.utils.data.DataLoader,
         training_epochs: int,
-        log_label: str = "train",
+        log_label: str,
     ):
         self.model = self.model.to(self.device)
         self.optimizer_to(self.device)
 
+        start_time = time.perf_counter()
+
         for epoch in range(training_epochs):
-            start_time = time.perf_counter()
             self.train(
                 epoch=epoch, train_dataloader=train_dataloader, log_label=log_label
             )
             self.test(test_dataloader=test_dataloader, log_label=log_label)
-            logger_regular.info(
-                f"{log_label} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
-            )
+
+        logger_regular.info(
+            f"{log_label} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+        )
 
         self.model = self.model.to("cpu")
         self.optimizer_to("cpu")

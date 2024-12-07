@@ -1,16 +1,21 @@
 import torch
-import torcheval
+from torcheval.metrics.functional import (
+    binary_accuracy,
+    binary_precision,
+    binary_recall,
+    binary_f1_score,
+    binary_confusion_matrix,
+    binary_auroc,
+)
 
 
 def calc_metrics(output: torch.Tensor, target: torch.Tensor):
-    accuracy = torcheval.metrics.functional.binary_accuracy(output, target).item()
-    precision = torcheval.metrics.functional.binary_precision(output, target).item()
-    recall = torcheval.metrics.functional.binary_recall(output, target).item()
-    f1_score = torcheval.metrics.functional.binary_f1_score(output, target).item()
-    confusion_matrix = torcheval.metrics.functional.binary_confusion_matrix(
-        output, target
-    )
-    auroc = torcheval.metrics.functional.binary_auroc(output, target).item()
+    accuracy = binary_accuracy(output, target).item()
+    precision = binary_precision(output, target).item()
+    recall = binary_recall(output, target).item()
+    f1_score = binary_f1_score(output, target).item()
+    confusion_matrix = binary_confusion_matrix(output, target)
+    auroc = binary_auroc(output, target).item()
     return accuracy, precision, recall, f1_score, confusion_matrix, auroc
 
 
