@@ -1,7 +1,7 @@
 import torch
 import torchvision
 
-from src.utils.data_entry_and_processing import (
+from utils.data_entry import (
     get_CIFAR100_dataloader,
     get_MNIST_dataloader,
 )

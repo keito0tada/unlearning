@@ -4,9 +4,8 @@ import time
 import datetime
 import matplotlib
 from matplotlib import pyplot as plt
-from src.model_trainer.cifar100 import CIFAR100ModelTrainer
-from src.model_trainer.medmnist import MedMNISTModelTrainer
-from src.utils.data_entry_and_processing import (
+from src.model_trainer.model_trainer import ModelTrainer
+from src.utils.data_entry import (
     get_CIFAR100_dataset,
     get_MNIST_dataset,
     get_MedMNIST_dataset,
@@ -24,8 +23,8 @@ CUDA_INDEX = 1
 DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_CHANNELS = 3
-NUM_CLASSES = 9
-BATCH_SIZE = 64
+NUM_CLASSES = 100
+BATCH_SIZE = 32
 NUM_EPOCHS = 10
 NUM_EPOCHS_UNLEARN = 5
 AMNESIAC_RATE = 1
@@ -41,7 +40,7 @@ def get_resnet50_trainer():
     model.fc = torch.nn.Sequential(torch.nn.Linear(model.fc.in_features, NUM_CLASSES))
     optimizer = torch.optim.Adam(model.parameters())
 
-    return MedMNISTModelTrainer(
+    return ModelTrainer(
         model=model,
         optimizer=optimizer,
         criterion=torch.nn.CrossEntropyLoss(),
@@ -54,10 +53,10 @@ def get_resnet18_trainer():
     model.conv1 = torch.nn.Conv2d(
         NUM_CHANNELS, 64, kernel_size=7, stride=2, padding=3, bias=False
     )
-    model.fc = torch.nn.Sequential(torch.nn.Linear(512, NUM_CLASSES))
+    model.fc = torch.nn.Sequential(torch.nn.Linear(model.fc.in_features, NUM_CLASSES))
     optimizer = torch.optim.Adam(model.parameters())
 
-    return CIFAR100ModelTrainer(
+    return ModelTrainer(
         model=model,
         optimizer=optimizer,
         criterion=torch.nn.CrossEntropyLoss(),
@@ -66,8 +65,8 @@ def get_resnet18_trainer():
 
 
 def get_model_trainer():
-    # return get_resnet18_trainer()
-    return get_resnet50_trainer()
+    return get_resnet18_trainer()
+    # return get_resnet50_trainer()
 
 
 def train_target_model(
@@ -86,6 +85,12 @@ def train_target_model(
     ) = torch.load(path_unlearning_datasets)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, BATCH_SIZE, shuffle=True
+    )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloder = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
     )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
@@ -108,6 +113,17 @@ def train_target_model(
         )
         accuracies.append(
             (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="All train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloder,
+                    log_label="Retain train dataset",
+                ),
                 model_trainer.test(
                     test_dataloader=test_dataloader, log_label="All test dataset"
                 ),
@@ -149,6 +165,12 @@ def retain(
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, BATCH_SIZE, shuffle=True
     )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloder = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
+    )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
     )
@@ -166,10 +188,21 @@ def retain(
     for epoch in range(NUM_EPOCHS):
         start_time = time.perf_counter()
         model_trainer.train(
-            epoch=epoch, train_dataloader=train_dataloader, log_label=LOG_LABEL
+            epoch=epoch, train_dataloader=retain_train_dataloder, log_label=LOG_LABEL
         )
         accuracies.append(
             (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="All train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloder,
+                    log_label="Retain train dataset",
+                ),
                 model_trainer.test(
                     test_dataloader=test_dataloader, log_label="All test dataset"
                 ),
@@ -214,6 +247,12 @@ def catastrophic_unlearn(
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, BATCH_SIZE, shuffle=True
     )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloder = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
+    )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
     )
@@ -233,10 +272,21 @@ def catastrophic_unlearn(
     for epoch in range(NUM_EPOCHS_UNLEARN):
         start_time = time.perf_counter()
         model_trainer.train(
-            epoch=epoch, train_dataloader=train_dataloader, log_label=LOG_LABEL
+            epoch=epoch, train_dataloader=retain_train_dataloder, log_label=LOG_LABEL
         )
         accuracies.append(
             (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="All train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloder,
+                    log_label="Retain train dataset",
+                ),
                 model_trainer.test(
                     test_dataloader=test_dataloader, log_label="All test dataset"
                 ),
@@ -282,6 +332,12 @@ def relabeling_unlearn(
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, BATCH_SIZE, shuffle=True
     )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloder = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
+    )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
     )
@@ -290,6 +346,9 @@ def relabeling_unlearn(
     )
     retain_test_dataloader = torch.utils.data.DataLoader(
         retain_test_dataset, BATCH_SIZE, shuffle=True
+    )
+    relabeling_train_dataloader = torch.utils.data.DataLoader(
+        relabeled_train_dataset, BATCH_SIZE, shuffle=True
     )
     model_trainer = get_model_trainer()
     model_trainer.load(path_target_model)
@@ -301,10 +360,23 @@ def relabeling_unlearn(
     for epoch in range(NUM_EPOCHS_UNLEARN):
         start_time = time.perf_counter()
         model_trainer.train(
-            epoch=epoch, train_dataloader=train_dataloader, log_label=LOG_LABEL
+            epoch=epoch,
+            train_dataloader=relabeling_train_dataloader,
+            log_label=LOG_LABEL,
         )
         accuracies.append(
             (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="All train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloder,
+                    log_label="Retain train dataset",
+                ),
                 model_trainer.test(
                     test_dataloader=test_dataloader, log_label="All test dataset"
                 ),
@@ -334,6 +406,7 @@ def training_of_amnesiac_unlearning(
     path_unlearning_datasets: str,
     path_amnesiac_trained_model: str,
     path_amnesiac_deltas: str,
+    path_amnesiac_model_training_metrics: str,
 ):
     LOG_LABEL = "Training of amnesiac unlearning"
     (
@@ -348,8 +421,20 @@ def training_of_amnesiac_unlearning(
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, BATCH_SIZE, shuffle=True
     )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloder = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
+    )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
+    )
+    forget_test_dataloader = torch.utils.data.DataLoader(
+        forget_test_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_test_dataloader = torch.utils.data.DataLoader(
+        retain_test_dataset, BATCH_SIZE, shuffle=True
     )
     model_trainer = get_model_trainer()
     model_trainer.model = model_trainer.model.to(DEVICE)
@@ -362,6 +447,7 @@ def training_of_amnesiac_unlearning(
             if "weight" in param_tensor or "bias" in param_tensor:
                 delta[param_tensor] = 0
             deltas.append(delta)
+    accuracies = []
     for epoch in range(NUM_EPOCHS):
         start_time = time.perf_counter()
         epoch_deltas = model_trainer.amnesiac_train(
@@ -370,7 +456,32 @@ def training_of_amnesiac_unlearning(
         for batch in range(len(train_dataloader)):
             for key in deltas[batch]:
                 deltas[batch][key] = epoch_deltas[batch][key] + deltas[batch][key]
-        model_trainer.test(test_dataloader, log_label=LOG_LABEL)
+        accuracies.append(
+            (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="All train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloder,
+                    log_label="Retain train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=test_dataloader, log_label="All test dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_test_dataloader,
+                    log_label="Forget test dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_test_dataloader,
+                    log_label="Retain test dataset",
+                ),
+            )
+        )
         logger_regular.info(
             f"{LOG_LABEL} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
         )
@@ -378,6 +489,8 @@ def training_of_amnesiac_unlearning(
     model_trainer.save(path_amnesiac_trained_model)
     torch.save(deltas, path_amnesiac_deltas)
     logger_regular.info(f"Amnesiac deltas is saved at {path_amnesiac_deltas}.")
+    torch.save(accuracies, path_amnesiac_model_training_metrics)
+    logger_regular.info(f"Metrics is saved at {path_amnesiac_model_training_metrics}")
 
 
 def amnesiac_unlearning(
@@ -399,6 +512,12 @@ def amnesiac_unlearning(
     ) = torch.load(path_unlearning_datasets)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, BATCH_SIZE, shuffle=True
+    )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloder = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
     )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
@@ -432,10 +551,21 @@ def amnesiac_unlearning(
     for epoch in range(NUM_EPOCHS_UNLEARN):
         start_time = time.perf_counter()
         model_trainer.train(
-            epoch=epoch, train_dataloader=train_dataloader, log_label=LOG_LABEL
+            epoch=epoch, train_dataloader=retain_train_dataloder, log_label=LOG_LABEL
         )
         accuracies.append(
             (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="All train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloder,
+                    log_label="Retain train dataset",
+                ),
                 model_trainer.test(
                     test_dataloader=test_dataloader, log_label="All test dataset"
                 ),
@@ -462,7 +592,8 @@ def amnesiac_unlearning(
 
 
 def split_unlearning_datasets(path_unlearning_datasets: str):
-    train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
+    # train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
+    train_dataset, test_dataset = get_CIFAR100_dataset()
 
     forget_train_dataset, retain_train_dataset = split_dataset_by_target_classes(
         train_dataset, target_classes=TARGET_CLASSES
@@ -498,60 +629,79 @@ def main():
 
     PATH_TARGET_MODEL = f"data/target_model_{DATETIME}.pt"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
+
     PATH_RETAIN_MODEL = f"data/retain_model_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
+
     PATH_CATASTROPHIC_MODEL = f"data/catastrophic_model_{DATETIME}.pt"
     PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
+
     PATH_RELABELING_MODEL = f"data/relabeling_model_{DATETIME}.pt"
     PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
-    PATH_AMNESIAC_MODEL = f"data/amnesiac_model_{DATETIME}.pt"
-    PATH_AMNESIAC_DELTAS = f"data/amnesiac_deltas_{DATETIME}.pt"
-    PATH_AMNESIAC_METRICS = f"data/amnesiac_metrics_{DATETIME}.pt"
 
-    # PATH_TARGET_MODEL = f"data/target_model_2024-12-07-17:48:54.pt"
+    PATH_AMNESIAC_MODEL = f"data/amnesiac_model_{DATETIME}.pt"
+    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_DELTAS = f"data/amnesiac_deltas_{DATETIME}.pt"
+    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
+
+    # ----
+    # PATH_UNLEARNING_DATASETS = f"data/unlearning_datasets_{DATETIME}.pt"
+
+    # PATH_TARGET_MODEL = f"data/target_model_{DATETIME}.pt"
     # PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
+
     # PATH_RETAIN_MODEL = f"data/retain_model_{DATETIME}.pt"
     # PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
+
     # PATH_CATASTROPHIC_MODEL = f"data/catastrophic_model_{DATETIME}.pt"
-    # PATH_CATASTROPHIC_METRICS = f"data/catastrophic_result_{DATETIME}.pt"
-    # PATH_RELABELING_MODEL = f"data/relabeling_model_2024-12-06-07:30:33.pt"
-    # PATH_RELABELING_METRICS = f"data/relabeling_metrics_2024-12-06-07:30:33.pt"
+    # PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
 
-    PATH_UNLEARNING_DATASETS = f"data/unlearning_datasets_2024-12-07-17:48:54.pt"
+    # PATH_RELABELING_MODEL = f"data/relabeling_model_{DATETIME}.pt"
+    # PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
 
-    # split_unlearning_datasets(PATH_UNLEARNING_DATASETS)
-    # train_target_model(PATH_UNLEARNING_DATASETS, PATH_TARGET_MODEL, PATH_TARGET_METRICS)
-    # retain(PATH_UNLEARNING_DATASETS, PATH_RETAIN_MODEL, PATH_RETAIN_METRICS)
-    # catastrophic_unlearn(
-    #     PATH_UNLEARNING_DATASETS,
-    #     PATH_TARGET_MODEL,
-    #     PATH_CATASTROPHIC_MODEL,
-    #     PATH_CATASTROPHIC_METRICS,
-    # )
-    # relabeling_unlearn(
-    #     PATH_UNLEARNING_DATASETS,
-    #     PATH_TARGET_MODEL,
-    #     PATH_RELABELING_MODEL,
-    #     PATH_RELABELING_METRICS,
-    # )
+    # PATH_AMNESIAC_MODEL = f"data/amnesiac_model_{DATETIME}.pt"
+    # PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    # PATH_AMNESIAC_DELTAS = f"data/amnesiac_deltas_{DATETIME}.pt"
+    # PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
+
+    split_unlearning_datasets(PATH_UNLEARNING_DATASETS)
+    train_target_model(PATH_UNLEARNING_DATASETS, PATH_TARGET_MODEL, PATH_TARGET_METRICS)
+    retain(PATH_UNLEARNING_DATASETS, PATH_RETAIN_MODEL, PATH_RETAIN_METRICS)
+    catastrophic_unlearn(
+        PATH_UNLEARNING_DATASETS,
+        PATH_TARGET_MODEL,
+        PATH_CATASTROPHIC_MODEL,
+        PATH_CATASTROPHIC_METRICS,
+    )
+    relabeling_unlearn(
+        PATH_UNLEARNING_DATASETS,
+        PATH_TARGET_MODEL,
+        PATH_RELABELING_MODEL,
+        PATH_RELABELING_METRICS,
+    )
     training_of_amnesiac_unlearning(
-        PATH_UNLEARNING_DATASETS, PATH_AMNESIAC_MODEL, PATH_AMNESIAC_DELTAS
+        PATH_UNLEARNING_DATASETS,
+        PATH_AMNESIAC_MODEL,
+        PATH_AMNESIAC_DELTAS,
+        PATH_AMNESIAC_TRAINING_METRICS,
     )
     amnesiac_unlearning(
         PATH_UNLEARNING_DATASETS,
         PATH_AMNESIAC_MODEL,
         PATH_AMNESIAC_DELTAS,
-        PATH_AMNESIAC_METRICS,
+        PATH_AMNESIAC_UNLEARNING_METRICS,
         1,
     )
 
 
 def show_metrics():
-    DATETIME = "2024-12-06-15:34:07"
+    DATETIME = "2024-12-08-10:11:22"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
     PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
     PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
     NUM_EPOCHS = 10
     NUM_EPOCHS_UNLEARN = 5
@@ -560,8 +710,10 @@ def show_metrics():
     accuracies_retain = torch.load(PATH_RETAIN_METRICS)
     accuracies_catastrophic = torch.load(PATH_CATASTROPHIC_METRICS)
     accuracies_relabeling = torch.load(PATH_RELABELING_METRICS)
+    accuracies_amnesiac_training = torch.load(PATH_AMNESIAC_TRAINING_METRICS)
+    accuracies_amnesiac_unlearning = torch.load(PATH_AMNESIAC_UNLEARNING_METRICS)
 
-    fig, axes = plt.subplots(1, 3, sharex="all", sharey="all")
+    fig, axes = plt.subplots(1, 4, sharex="all", sharey="all")
 
     axes[0].set_xlim([-1, NUM_EPOCHS + NUM_EPOCHS_UNLEARN])
     axes[0].set_ylim([0, 1])
@@ -569,17 +721,32 @@ def show_metrics():
     axes[0].plot(
         range(NUM_EPOCHS),
         [accs[0] for accs in accuracies_retain],
-        label="All dataset",
+        label="All train dataset",
     )
     axes[0].plot(
         range(NUM_EPOCHS),
         [accs[1] for accs in accuracies_retain],
-        label="Unlearn dataset",
+        label="Forget train dataset",
     )
     axes[0].plot(
         range(NUM_EPOCHS),
         [accs[2] for accs in accuracies_retain],
-        label="Retain dataset",
+        label="Retain train dataset",
+    )
+    axes[0].plot(
+        range(NUM_EPOCHS),
+        [accs[3] for accs in accuracies_retain],
+        label="All test dataset",
+    )
+    axes[0].plot(
+        range(NUM_EPOCHS),
+        [accs[4] for accs in accuracies_retain],
+        label="Forget test dataset",
+    )
+    axes[0].plot(
+        range(NUM_EPOCHS),
+        [accs[5] for accs in accuracies_retain],
+        label="Retain test dataset",
     )
     axes[0].set_title("Retain")
     axes[0].set_xlabel("Epoch")
@@ -590,51 +757,127 @@ def show_metrics():
         range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
         [accs[0] for accs in accuracies_target]
         + [accs[0] for accs in accuracies_catastrophic],
-        label="All dataset",
+        label="All train dataset",
     )
     axes[1].plot(
         range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
         [accs[1] for accs in accuracies_target]
         + [accs[1] for accs in accuracies_catastrophic],
-        label="Unlearn dataset",
+        label="Forget train dataset",
     )
     axes[1].plot(
         range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
         [accs[2] for accs in accuracies_target]
         + [accs[2] for accs in accuracies_catastrophic],
-        label="Retain dataset",
+        label="Retain train dataset",
+    )
+    axes[1].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[3] for accs in accuracies_target]
+        + [accs[3] for accs in accuracies_catastrophic],
+        label="All test dataset",
+    )
+    axes[1].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[4] for accs in accuracies_target]
+        + [accs[4] for accs in accuracies_catastrophic],
+        label="Forget test dataset",
+    )
+    axes[1].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[5] for accs in accuracies_target]
+        + [accs[5] for accs in accuracies_catastrophic],
+        label="Retain test dataset",
     )
     axes[1].set_title("Catastrophic")
     axes[1].set_xlabel("Epoch")
     axes[1].set_ylabel("Accuracy")
     axes[1].legend()
 
-    print(accuracies_relabeling)
     axes[2].plot(
         range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
         [accs[0] for accs in accuracies_target]
         + [accs[0] for accs in accuracies_relabeling],
-        label="All dataset",
+        label="All train dataset",
     )
     axes[2].plot(
         range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
         [accs[1] for accs in accuracies_target]
         + [accs[1] for accs in accuracies_relabeling],
-        label="Unlearn dataset",
+        label="Forget train dataset",
     )
     axes[2].plot(
         range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
         [accs[2] for accs in accuracies_target]
         + [accs[2] for accs in accuracies_relabeling],
-        label="Retain dataset",
+        label="Retain train dataset",
+    )
+    axes[2].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[3] for accs in accuracies_target]
+        + [accs[3] for accs in accuracies_relabeling],
+        label="All test dataset",
+    )
+    axes[2].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[4] for accs in accuracies_target]
+        + [accs[4] for accs in accuracies_relabeling],
+        label="Forget test dataset",
+    )
+    axes[2].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[5] for accs in accuracies_target]
+        + [accs[5] for accs in accuracies_relabeling],
+        label="Retain test dataset",
     )
     axes[2].set_title("Relabeling")
     axes[2].set_xlabel("Epoch")
     axes[2].set_ylabel("Accuracy")
     axes[2].legend()
 
-    plt.suptitle("Unlearning on resnet50 learning PathMNIST")
+    axes[3].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[0] for accs in accuracies_amnesiac_training]
+        + [accs[0] for accs in accuracies_amnesiac_unlearning],
+        label="All train dataset",
+    )
+    axes[3].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[1] for accs in accuracies_amnesiac_training]
+        + [accs[1] for accs in accuracies_amnesiac_unlearning],
+        label="Forget train dataset",
+    )
+    axes[3].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[2] for accs in accuracies_amnesiac_training]
+        + [accs[2] for accs in accuracies_amnesiac_unlearning],
+        label="Retain train dataset",
+    )
+    axes[3].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[3] for accs in accuracies_amnesiac_training]
+        + [accs[3] for accs in accuracies_amnesiac_unlearning],
+        label="All test dataset",
+    )
+    axes[3].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[4] for accs in accuracies_amnesiac_training]
+        + [accs[4] for accs in accuracies_amnesiac_unlearning],
+        label="Forget test dataset",
+    )
+    axes[3].plot(
+        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+        [accs[5] for accs in accuracies_amnesiac_training]
+        + [accs[5] for accs in accuracies_amnesiac_unlearning],
+        label="Retain test dataset",
+    )
+    axes[3].set_title("Amnesiac")
+    axes[3].set_xlabel("Epoch")
+    axes[3].set_ylabel("Accuracy")
+    axes[3].legend()
+
+    plt.suptitle("Unlearning on resnet18 learning CIFAR100 (batch size: 64)")
     plt.show()
 
 
-main()
+show_metrics()

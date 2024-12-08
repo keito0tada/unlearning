@@ -44,6 +44,60 @@ class ModelTrainer:
                     f"{log_label} | Epoch: {epoch} [{index * len(X):6d}] Loss: {loss.item():.6f}"
                 )
 
+    def amnesiac_train(
+        self,
+        train_dataloader: torch.utils.data.DataLoader,
+        epoch: int,
+        target_class: int,
+        log_label: str,
+        log_interval: int = 10,
+    ):
+        self.model.train()
+
+        deltas = []
+        for _ in range(len(train_dataloader)):
+            delta = {}
+            for param_tensor in self.model.state_dict():
+                if "weight" in param_tensor or "bias" in param_tensor:
+                    delta[param_tensor] = 0
+            deltas.append(delta)
+
+        for index, (X, y) in enumerate(train_dataloader):
+            X = X.to(self.device)
+            y = y.to(self.device)
+
+            before = {}
+            for param_tensor in self.model.state_dict():
+                if "weight" in param_tensor or "bias" in param_tensor:
+                    before[param_tensor] = (
+                        self.model.state_dict()[param_tensor].clone().cpu()
+                    )
+                    before[param_tensor].requires_grad = False
+
+            self.optimizer.zero_grad()
+            pred_y = self.model(X)
+            y = y.squeeze()
+            loss = self.criterion(pred_y, y)
+            loss.backward()
+            self.optimizer.step()
+
+            if target_class in y:
+                after = {}
+                for param_tensor in self.model.state_dict():
+                    if "weight" in param_tensor or "bias" in param_tensor:
+                        after[param_tensor] = (
+                            self.model.state_dict()[param_tensor].clone().cpu()
+                        )
+                        after[param_tensor].requires_grad = False
+                for key in before:
+                    deltas[index][key] = after[key] - before[key]
+
+            if index % log_interval == 0:
+                logger_overwrite.debug(
+                    f"{log_label} | Epoch: {epoch} [{index * len(X):6d}] Loss: {loss.item():.6f}"
+                )
+        return deltas
+
     def test(self, test_dataloader: torch.utils.data.DataLoader, log_label: str):
         self.model.eval()
 
@@ -60,7 +114,7 @@ class ModelTrainer:
 
                 pred_y = self.model(X)
                 y = y.squeeze()
-                total_num_example += y.size()
+                total_num_example += y.size()[0]
                 test_loss += self.criterion(pred_y, y).item()
                 _, pred_class = torch.topk(pred_y, 1, dim=1, largest=True, sorted=True)
                 for index, target_class in enumerate(y):
@@ -76,10 +130,10 @@ class ModelTrainer:
                         top_10_correct_num += 1
 
         logger_regular.info(
-            f"{log_label} | Mean loss: {test_loss / len(test_dataloader.dataset):.4f}, Accuracy: {correct_num}/{total_num_example} ({100 * correct_num / total_num_example:.0f}%)"
+            f"{log_label} | Mean loss: {test_loss / len(test_dataloader.dataset):.4f}, Accuracy: {correct_num}/{total_num_example} ({100 * correct_num / total_num_example:.1f}%)"
         )
         logger_regular.info(
-            f"{log_label} | top-5 accuracy: {top_5_correct_num}/{total_num_example} ({top_5_correct_num / total_num_example}%), top-10 accuracy: {top_10_correct_num}/{total_num_example} ({top_10_correct_num/total_num_example}%)"
+            f"{log_label} | top-5 accuracy: {top_5_correct_num}/{total_num_example} ({100 * top_5_correct_num / total_num_example:.1f}%), top-10 accuracy: {top_10_correct_num}/{total_num_example} ({100 * top_10_correct_num/total_num_example:.1f}%)"
         )
         return correct_num / total_num_example
 

@@ -96,4 +96,3 @@ def get_MedMNIST_dataloader(
     )
 
     return train_dataloader, test_dataloader, task, num_channels, num_classes
-

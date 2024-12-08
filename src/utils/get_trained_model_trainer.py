@@ -3,7 +3,7 @@ import os
 import torch
 import torchvision
 from model_trainer.cifar100 import CIFAR100ModelTrainer
-from utils.data_entry_and_processing import get_MNIST_dataloader
+from utils.data_entry import get_MNIST_dataloader
 
 
 def get_MNIST_model_trainer(

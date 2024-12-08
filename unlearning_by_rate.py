@@ -7,10 +7,13 @@ import matplotlib
 from matplotlib import pyplot as plt
 from src.model_trainer.cifar100 import CIFAR100ModelTrainer
 from src.model_trainer.medmnist import MedMNISTModelTrainer
-from src.utils.data_entry_and_processing import (
+from src.model_trainer.model_trainer import ModelTrainer
+from utils.data_entry import (
     get_CIFAR100_dataset,
     get_MNIST_dataset,
     get_MedMNIST_dataset,
+)
+from src.utils.data_processing import (
     split_dataset_by_target_classes,
     relabel_dataset,
     relabel_dataset_with_target_classes,
@@ -24,7 +27,7 @@ CUDA_INDEX = 0
 DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_CHANNELS = 3
-NUM_CLASSES = 9
+NUM_CLASSES = 100
 BATCH_SIZE = 8
 NUM_EPOCHS = 10
 NUM_EPOCHS_UNLEARN = 5
@@ -39,7 +42,7 @@ def get_resnet50_trainer():
     model.fc = torch.nn.Sequential(torch.nn.Linear(model.fc.in_features, NUM_CLASSES))
     optimizer = torch.optim.Adam(model.parameters())
 
-    return MedMNISTModelTrainer(
+    return ModelTrainer(
         model=model,
         optimizer=optimizer,
         criterion=torch.nn.CrossEntropyLoss(),
@@ -55,7 +58,7 @@ def get_resnet18_trainer():
     model.fc = torch.nn.Sequential(torch.nn.Linear(512, NUM_CLASSES))
     optimizer = torch.optim.Adam(model.parameters())
 
-    return CIFAR100ModelTrainer(
+    return ModelTrainer(
         model=model,
         optimizer=optimizer,
         criterion=torch.nn.CrossEntropyLoss(),
@@ -601,7 +604,7 @@ def show_metrics():
 
 
 def test():
-    train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
+    train_dataset, test_dataset = get_CIFAR100_dataset()
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, BATCH_SIZE, shuffle=True
     )
@@ -611,7 +614,7 @@ def test():
 
     model_trainer = get_resnet50_trainer()
 
-    model_trainer.iterate_train(train_dataloader, test_dataloader, 30)
+    model_trainer.iterate_train(train_dataloader, test_dataloader, 1, "pathmnist train")
 
 
-show_metrics()
+test()

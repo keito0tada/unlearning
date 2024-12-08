@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import torcheval
 from torcheval.metrics.functional import multiclass_accuracy
 
-from src.utils.data_entry_and_processing import (
+from utils.data_entry import (
     get_MNIST_dataloader,
     get_MNIST_dataset,
     get_mnist_unlearning_threes_dataloader,

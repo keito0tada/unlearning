@@ -47,7 +47,7 @@ def relabel_dataset_with_target_classes(
     for X, y in copy.deepcopy(dataset):
         data_x.append(X)
         if y in target_classes:
-            data_y.append([random.choice(labels)])
+            data_y.append(random.choice(labels))
         else:
             data_y.append(y)
     return torch.utils.data.TensorDataset(
@@ -62,7 +62,8 @@ def relabel_all_dataset(dataset: torch.utils.data.Dataset, num_classes: int):
     labels = list(range(num_classes))
     for X, y in copy.deepcopy(dataset):
         data_x.append(X)
-        data_y.append([random.choice([label for label in labels if label != y])])
+        data_y.append(random.choice([label for label in labels if label != y]))
     return torch.utils.data.TensorDataset(
-        torch.stack(data_x), torch.tensor(data_y, dtype=torch.int64)
+        torch.stack(data_x),
+        torch.tensor(np.array(data_y, dtype=int), dtype=torch.int64),
     )

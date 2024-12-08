@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from src.model_trainer.model_trainer import ModelTrainer
 from src.model_trainer.cifar100 import CIFAR100ModelTrainer
 from src.model_trainer.attack_model import AttackModelTrainer
-from src.utils.data_entry_and_processing import (
+from utils.data_entry import (
     get_CIFAR100_dataloader,
     get_CIFAR100_dataset,
     get_MNIST_dataloader,
