@@ -10,26 +10,28 @@ import matplotlib.pyplot as plt
 from src.model_trainer.model_trainer import ModelTrainer
 from src.model_trainer.cifar100 import CIFAR100ModelTrainer
 from src.model_trainer.attack_model import AttackModelTrainer
-from utils.data_entry import (
+from src.utils.data_entry import (
     get_CIFAR100_dataloader,
     get_CIFAR100_dataset,
     get_MNIST_dataloader,
     get_MNIST_dataset,
+    get_MedMNIST_dataset,
 )
+from src.utils.model_trainer_templates import get_resnet50_trainer, get_resnet18_trainer
 
 from src.log.logger import logger_overwrite, logger_regular, cuda_memory_usage, NOW
 from src.utils.binary_metrics import calc_metrics, BinaryMetrics
 
 matplotlib.use("tkagg")
 
-CUDA_INDEX = 1
+CUDA_INDEX = 0
 DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_SHADOW_MODELS = 20
 NUM_CHANNELS = 3
 NUM_CLASSES = 100
-BATCH_SIZE = 8
-ATTACK_BATCH_SIZE = 8
+BATCH_SIZE = 16
+ATTACK_BATCH_SIZE = 16
 NUM_EPOCHS = 10
 
 
@@ -49,42 +51,35 @@ class AttackModel(nn.Module):
         return torch.sigmoid(x)
 
 
-def get_model() -> tuple[torchvision.Module, torch.optim.Optimizer]:
-    shadow_model = torchvision.models.resnet18()
-    shadow_model.conv1 = nn.Conv2d(
-        NUM_CHANNELS,
-        64,
-        kernel_size=(7, 7),
-        stride=(2, 2),
-        padding=(3, 3),
-        bias=False,
+def get_attack_model_trainer() -> AttackModelTrainer:
+    attack_model = AttackModel()
+    attack_optimizer = torch.optim.Adam(attack_model.parameters())
+    attack_model_trainer = AttackModelTrainer(
+        attack_model, attack_optimizer, nn.functional.binary_cross_entropy, DEVICE
     )
-    shadow_model.fc = nn.Sequential(nn.Linear(512, NUM_CLASSES))
-    shadow_optimizer = torch.optim.Adam(shadow_model.parameters())
-    return shadow_model, shadow_optimizer
+    return attack_model_trainer
 
 
 def get_model_trainer() -> ModelTrainer:
-    model, optimizer = get_model()
-    return CIFAR100ModelTrainer(
-        model=model,
-        optimizer=optimizer,
-        criterion=torch.nn.CrossEntropyLoss(),
-        device=DEVICE,
-    )
+    return get_resnet18_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
+    # return get_resnet50_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
+
+
+def get_dataset():
+    return get_CIFAR100_dataset()
+    # return get_MedMNIST_dataset("pathmnist")
 
 
 def generate_target_model(
     path_target_model: str, path_in_dataset: str, path_out_dataset: str
 ):
-    # dataset
-    train_dataloader, test_dataloader = get_CIFAR100_dataloader(batch_size=BATCH_SIZE)
+    train_dataset, test_dataset = get_dataset()
 
     in_dataset, out_dataset = torch.utils.data.random_split(
-        train_dataloader.dataset,
+        train_dataset,
         [
-            int(len(train_dataloader.dataset) / 2),
-            int(len(train_dataloader.dataset) / 2),
+            int(len(train_dataset) / 2),
+            len(train_dataset) - int(len(train_dataset) / 2),
         ],
     )
     torch.save(in_dataset, path_in_dataset)
@@ -94,6 +89,9 @@ def generate_target_model(
 
     in_dataloader = torch.utils.data.DataLoader(
         in_dataset, batch_size=BATCH_SIZE, shuffle=True
+    )
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset, BATCH_SIZE, shuffle=True
     )
 
     # train target model
@@ -105,8 +103,9 @@ def generate_target_model(
 
 
 def generate_shadow_models(path_shadow_models: str, path_shadow_datasets: str):
+    LOG_LABEL = "Generaing shadow models"
     # load train and test dataloaders
-    train_dataset, test_dataset = get_CIFAR100_dataset()
+    train_dataset, test_dataset = get_dataset()
 
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
@@ -120,7 +119,7 @@ def generate_shadow_models(path_shadow_models: str, path_shadow_datasets: str):
                 train_dataset,
                 [
                     int(len(train_dataset) / 2),
-                    int(len(train_dataset) / 2),
+                    len(train_dataset) - int(len(train_dataset) / 2),
                 ],
             )
         )
@@ -141,6 +140,7 @@ def generate_shadow_models(path_shadow_models: str, path_shadow_datasets: str):
             train_dataloader=in_dataloader,
             test_dataloader=test_dataloader,
             training_epochs=NUM_EPOCHS,
+            log_label=LOG_LABEL,
         )
         logger_regular.info(
             f"Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
@@ -166,11 +166,13 @@ def generate_attack_datasets(
     for target_class in range(NUM_CLASSES):
         cuda_memory_usage(CUDA_INDEX)
         start_time = time.perf_counter()
+
         attack_dataset_x = []
         attack_dataset_y = []
         in_count = 0
         out_count = 0
         in_target_count = 0
+
         for index, shadow_model_trainer in enumerate(shadow_model_trainers):
             with torch.no_grad():
                 cuda_memory_usage(CUDA_INDEX)
@@ -185,13 +187,13 @@ def generate_attack_datasets(
                 )
                 logger_regular.debug("Generating an attack dataset from an in dataset")
                 for j, (X, y) in enumerate(in_dataloader):
-                    if y == target_class:
+                    if y.item() == target_class:
                         X = X.to(DEVICE)
                         pred_y = shadow_model(X).view(NUM_CLASSES)
                         in_target_count += 1
                         if torch.argmax(pred_y).item() == target_class:
                             attack_dataset_x.append(nn.Softmax(dim=0)(pred_y).cpu())
-                            attack_dataset_y.append(1)
+                            attack_dataset_y.append(0)
                             in_count += 1
                     if j % 100 == 0:
                         logger_overwrite.debug(
@@ -207,7 +209,7 @@ def generate_attack_datasets(
                         X = X.to(DEVICE)
                         pred_y = shadow_model(X).view(NUM_CLASSES)
                         attack_dataset_x.append(nn.Softmax(dim=0)(pred_y).cpu())
-                        attack_dataset_y.append(0)
+                        attack_dataset_y.append(1)
                         out_count += 1
                     if j % 100 == 0:
                         logger_overwrite.debug(
@@ -228,7 +230,8 @@ def generate_attack_datasets(
 
         torch.save(
             torch.utils.data.TensorDataset(
-                torch.stack(attack_dataset_x), torch.Tensor(attack_dataset_y)
+                torch.stack(attack_dataset_x),
+                torch.tensor(attack_dataset_y, dtype=torch.int64),
             ),
             path_attack_datasets.format(target_class),
         )
@@ -247,14 +250,9 @@ def generate_attack_models(
     for target_class in range(NUM_CLASSES):
         start_time = time.perf_counter()
 
-        attack_model = AttackModel()
-        attack_optimizer = torch.optim.Adam(attack_model.parameters())
-        attack_model_trainer = AttackModelTrainer(
-            attack_model, attack_optimizer, nn.functional.binary_cross_entropy, DEVICE
-        )
+        attack_model_trainer = get_attack_model_trainer()
 
         attack_dataset = torch.load(path_attack_datasets.format(target_class))
-
         attack_dataset_train, attack_dataset_test = torch.utils.data.random_split(
             attack_dataset,
             [
@@ -315,11 +313,7 @@ def attack(
         logger_regular.info(f"Class {target_class}")
 
         # load attack model
-        attack_model = AttackModel()
-        attack_optimizer = torch.optim.Adam(attack_model.parameters())
-        attack_model_trainer = AttackModelTrainer(
-            attack_model, attack_optimizer, nn.functional.binary_cross_entropy, DEVICE
-        )
+        attack_model_trainer = get_attack_model_trainer()
         attack_model_trainer.load(path_attack_models.format(target_class))
 
         attack_x_dataset = []
@@ -335,7 +329,7 @@ def attack(
                     pred_y = target_model(X).view(NUM_CLASSES)
                     if torch.argmax(pred_y).item() == target_class:
                         attack_x_dataset.append(nn.functional.softmax(pred_y, dim=0))
-                        attack_y_dataset.append(1)
+                        attack_y_dataset.append(0)
                 if i % 100 == 0:
                     logger_overwrite.debug(
                         f"{i} | the size of the attack dataset is {len(attack_x_dataset)} now."
@@ -347,19 +341,18 @@ def attack(
                 if target_class == y.item():
                     pred_y = target_model(X).view(NUM_CLASSES)
                     attack_x_dataset.append(nn.functional.softmax(pred_y, dim=0))
-                    attack_y_dataset.append(0)
+                    attack_y_dataset.append(1)
                 if i % 100 == 0:
                     logger_overwrite.debug(
                         f"{i} | the size of the attack dataset is {len(attack_x_dataset)} now."
                     )
-        logger_regular.debug(torch.stack(attack_x_dataset).shape)
-        logger_regular.debug(torch.Tensor(attack_y_dataset).shape)
         logger_regular.info(
             f"The size of the attack dataset is {len(attack_x_dataset)}."
         )
 
         attack_dataset = torch.utils.data.TensorDataset(
-            torch.stack(attack_x_dataset), torch.Tensor(attack_y_dataset)
+            torch.stack(attack_x_dataset),
+            torch.tensor(attack_y_dataset, dtype=torch.int64),
         )
         attack_dataloader = torch.utils.data.DataLoader(
             attack_dataset, batch_size=BATCH_SIZE, shuffle=True
@@ -416,23 +409,30 @@ def membership_inference_attack():
         f"data/attack_output_and_target_datasets_{DATETIME}.pt"
     )
 
-    PATH_TARGET_MODEL = f"model/target_model_2024-12-05-07:32:48..pt"
-    PATH_IN_TARGET_DATASET = f"data/in_dataset_2024-12-05-07:32:48..pt"
-    PATH_OUT_TARGET_DATASET = f"data/out_dataset_2024-12-05-07:32:48..pt"
+    # ---
+    # PATH_TARGET_MODEL = f"model/target_model_2024-12-05-07:32:48..pt"
+    # PATH_IN_TARGET_DATASET = f"data/in_dataset_2024-12-05-07:32:48..pt"
+    # PATH_OUT_TARGET_DATASET = f"data/out_dataset_2024-12-05-07:32:48..pt"
 
-    PATH_SHADOW_MODELS = f"model/shadow_model_{{}}_2024-12-05-07:32:48.pt"
-    PATH_SHADOW_DATASETS = f"data/shadow_dataset_2024-12-05-07:32:48.pt"
+    # PATH_SHADOW_MODELS = f"model/shadow_model_{{}}_2024-12-05-07:32:48.pt"
+    # PATH_SHADOW_DATASETS = f"data/shadow_dataset_2024-12-05-07:32:48.pt"
 
     # PATH_ATACK_DATASETS = f"data/attack_dataset_{{}}_2024-12-05-07:32:48.pt"
 
     # PATH_ATTACK_MODELS = f"model/attack_model_{{}}_2024-12-05-07:32:48.pt"
 
+    # hyperparameter
+    logger_regular.info(f"NUM_CHANNELS: {NUM_CHANNELS}, NUM_CLASSES: {NUM_CLASSES}")
+    logger_regular.info(
+        f"NUM_SHADOW_MODEL: {NUM_SHADOW_MODELS}, BATCH_SIZE: {BATCH_SIZE}, ATTACK_BATCH_SIZE: {ATTACK_BATCH_SIZE}, NUM_EPOCHS: {NUM_EPOCHS}"
+    )
+
     start_time = time.perf_counter()
 
-    # generate_target_model(
-    #     PATH_TARGET_MODEL, PATH_IN_TARGET_DATASET, PATH_OUT_TARGET_DATASET
-    # )
-    # generate_shadow_models(PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS)
+    generate_target_model(
+        PATH_TARGET_MODEL, PATH_IN_TARGET_DATASET, PATH_OUT_TARGET_DATASET
+    )
+    generate_shadow_models(PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS)
     generate_attack_datasets(
         PATH_ATACK_DATASETS, PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS
     )
@@ -453,11 +453,12 @@ def membership_inference_attack():
 
 
 def show_metrics_training_attack_model():
+    DATETIME = "2024-12-09-15:07:22"
     PATH_METRICS_TRAINING_ATTACK_MODELS = (
-        f"data/metrics_training_attack_models_2024-12-05-10:26:12.pt"
+        f"data/metrics_training_attack_models_{DATETIME}.pt"
     )
     PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS = (
-        f"data/attack_output_and_target_datasets_2024-12-04-12:54:48.pt"
+        f"data/attack_output_and_target_datasets_{DATETIME}.pt"
     )
 
     ig, axes = plt.subplots(3, 3, sharex="all")
@@ -551,10 +552,10 @@ def show_metrics_training_attack_model():
 
     axes[0][1].set_title("Confusion matrix on each epoch")
     axes[0][1].set_xlabel("Epoch")
-    axes[0][1].bar(range(NUM_EPOCHS), whole_tp, label="tp")
-    axes[0][1].bar(range(NUM_EPOCHS), whole_tn, label="tn")
-    axes[0][1].bar(range(NUM_EPOCHS), whole_fp, label="fp")
-    axes[0][1].bar(range(NUM_EPOCHS), whole_fn, label="fn")
+    axes[0][1].plot(range(NUM_EPOCHS), whole_tp, label="tp")
+    axes[0][1].plot(range(NUM_EPOCHS), whole_tn, label="tn")
+    axes[0][1].plot(range(NUM_EPOCHS), whole_fp, label="fp")
+    axes[0][1].plot(range(NUM_EPOCHS), whole_fn, label="fn")
     axes[0][1].legend()
 
     attack_output_and_target_datasets = torch.load(
@@ -599,7 +600,7 @@ def show_metrics_training_attack_model():
     table.auto_set_font_size(False)
     table.set_fontsize(12)
 
-    plt.suptitle("MIA to resnet18 on CIFAR100")
+    plt.suptitle("MIA to resnet50 on PathMNIST")
     plt.show()
 
 
@@ -636,18 +637,6 @@ def attack_result():
     logger_regular.info(
         f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
     )
-
-
-def datasets_test():
-    # PATH = "data/attack_dataset_0_2024-12-04-12:54:48.pt"
-    # dataset = torch.load(PATH)
-    dataset, _ = get_MNIST_dataset()
-    ans = []
-    for data in dataset:
-        ans.append(data[1])
-
-    print(max(ans))
-    print(min(ans))
 
 
 membership_inference_attack()

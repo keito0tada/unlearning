@@ -7,11 +7,13 @@ import matplotlib.pyplot as plt
 import torcheval
 from torcheval.metrics.functional import multiclass_accuracy
 
-from utils.data_entry import (
+from src.utils.data_entry import (
+    get_CIFAR100_dataloader,
+    get_CIFAR100_dataset,
     get_MNIST_dataloader,
     get_MNIST_dataset,
-    get_mnist_unlearning_threes_dataloader,
     get_MedMNIST_dataloader,
+    get_MedMNIST_dataset,
 )
 from src.model_trainer.model_trainer import ModelTrainer
 from src.attack.model_inversion_attack import ModelInversionAttack
@@ -284,7 +286,11 @@ def test9():
 
 
 def test10():
-    train_dataset, _ = get_MNIST_dataset()
-    for i in range(len(train_dataset)):
-        print(train_dataset[i])
+    train_dataloader, _ = get_MedMNIST_dataloader("pathmnist", 8)
+    train_dataloader, _ = get_MNIST_dataloader(8)
+    for X, y in train_dataloader:
+        print(y)
         return
+
+
+test10()

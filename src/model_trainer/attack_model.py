@@ -20,12 +20,12 @@ class AttackModelTrainer(ModelTrainer):
         for index, (X, y) in enumerate(train_dataloader):
             # move data to device
             X = X.to(self.device)
-            y = y.to(self.device)
+            y = y.to(self.device).to(torch.float64)
 
             # train
             self.optimizer.zero_grad()
             pred_y = torch.flatten(self.model(X))
-            loss = self.criterion(pred_y, y)
+            loss = self.criterion(pred_y, y.to(torch.float32))
             loss.backward()
             self.optimizer.step()
 
@@ -45,11 +45,11 @@ class AttackModelTrainer(ModelTrainer):
         with torch.no_grad():
             for X, y in test_dataloader:
                 X = X.to(self.device)
-                y = y.to(self.device)
+                y: torch.Tensor = y.to(self.device)
 
                 pred_y = torch.flatten(self.model(X))
                 total_num_example += y.size()[0]
-                test_loss += self.criterion(pred_y, y).item()
+                test_loss += self.criterion(pred_y, y.to(torch.float32)).item()
                 pred = torch.round(pred_y)
                 correct_num += pred.eq(y.data.view_as(pred)).sum()
 
@@ -114,4 +114,4 @@ class AttackModelTrainer(ModelTrainer):
                 list_pred_y.append(torch.flatten(self.model(X)).cpu())
                 list_target_y.append(y)
 
-        return torch.cat(list_pred_y), torch.cat(list_target_y).to(torch.int64)
+        return torch.cat(list_pred_y), torch.cat(list_target_y)

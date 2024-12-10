@@ -33,7 +33,7 @@ class CIFAR100ModelTrainer(ModelTrainer):
                     f"{log_label} | Epoch: {epoch} [{index * len(X):6d}] Loss: {loss.item():.6f}"
                 )
 
-    def amnesiac_train(
+    def amnesiac_train_by_target_classes(
         self,
         train_dataloader: DataLoader,
         epoch: int,

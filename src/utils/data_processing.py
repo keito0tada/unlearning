@@ -19,21 +19,6 @@ def split_dataset_by_target_classes(
     )
 
 
-def relabel_dataset(
-    dataset,
-    target_classes: list[int],
-    num_classes: int,
-):
-    dataset = copy.deepcopy(dataset)
-    labels = list(range(num_classes))
-    for target_class in target_classes:
-        labels.remove(target_class)
-    for i in range(len(dataset)):
-        if dataset.targets[i] in target_classes:
-            dataset.targets[i] = random.choice(labels)
-    return dataset
-
-
 def relabel_dataset_with_target_classes(
     dataset: torch.utils.data.Dataset,
     target_classes: list[int],

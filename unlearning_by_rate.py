@@ -20,6 +20,7 @@ from src.utils.data_processing import (
     relabel_all_dataset,
 )
 from src.log.logger import logger_overwrite, logger_regular, NOW
+from src.utils.model_trainer_templates import get_resnet50_trainer, get_resnet18_trainer
 
 # matplotlib.use("tkagg")
 
@@ -33,42 +34,13 @@ NUM_EPOCHS = 10
 NUM_EPOCHS_UNLEARN = 5
 KEEP_INTERVAL = 10
 
-
-def get_resnet50_trainer():
-    model = torchvision.models.resnet18()
-    model.conv1 = torch.nn.Conv2d(
-        NUM_CHANNELS, 64, kernel_size=7, stride=2, padding=3, bias=False
-    )
-    model.fc = torch.nn.Sequential(torch.nn.Linear(model.fc.in_features, NUM_CLASSES))
-    optimizer = torch.optim.Adam(model.parameters())
-
-    return ModelTrainer(
-        model=model,
-        optimizer=optimizer,
-        criterion=torch.nn.CrossEntropyLoss(),
-        device=DEVICE,
-    )
-
-
-def get_resnet18_trainer():
-    model = torchvision.models.resnet18()
-    model.conv1 = torch.nn.Conv2d(
-        NUM_CHANNELS, 64, kernel_size=7, stride=2, padding=3, bias=False
-    )
-    model.fc = torch.nn.Sequential(torch.nn.Linear(512, NUM_CLASSES))
-    optimizer = torch.optim.Adam(model.parameters())
-
-    return ModelTrainer(
-        model=model,
-        optimizer=optimizer,
-        criterion=torch.nn.CrossEntropyLoss(),
-        device=DEVICE,
-    )
+UNLEARN_RATE = 0.05
+AMNESIAC_RATE = 1
 
 
 def get_model_trainer():
-    # return get_resnet18_trainer()
-    return get_resnet50_trainer()
+    # return get_resnet18_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
+    return get_resnet50_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
 
 
 def train_target_model(
@@ -344,7 +316,7 @@ def relabeling_unlearn(
     logger_regular.info(f"Accuracies is saved at {path_relabeling_metrics}")
 
 
-def training_of_amnesiac_unlearning(path_unlearning_datasets: str):
+def training_of_amnesiac_unlearning(path_unlearning_datasets: str, path_):
     LOG_LABEL = "Training of amnesiac unlearning"
     (
         train_dataset,
@@ -355,13 +327,13 @@ def training_of_amnesiac_unlearning(path_unlearning_datasets: str):
         rate,
     ) = torch.load(path_unlearning_datasets)
     train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, BATCH_SIZE, shuffle=True
+        train_dataset, BATCH_SIZE, shuffle=False
     )
     forget_train_dataloader = torch.utils.data.DataLoader(
-        forget_train_dataset, BATCH_SIZE, shuffle=True
+        forget_train_dataset, BATCH_SIZE, shuffle=False
     )
     retain_train_dataloader = torch.utils.data.DataLoader(
-        retain_train_dataset, BATCH_SIZE, shuffle=True
+        retain_train_dataset, BATCH_SIZE, shuffle=False
     )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
@@ -376,16 +348,35 @@ def training_of_amnesiac_unlearning(path_unlearning_datasets: str):
         for param_tensor in model_trainer.model.state_dict():
             if "weight" in param_tensor or "bias" in param_tensor:
                 delta[param_tensor] = 0
-            deltas.append(delta)
+        deltas.append(delta)
+
+    accuracies = []
     for epoch in range(NUM_EPOCHS):
         start_time = time.perf_counter()
-        epoch_deltas = model_trainer.amnesiac_train(
+        epoch_deltas = model_trainer.amnesiac_train_by_target_classes(
             train_dataloader, epoch, BATCH_SIZE, KEEP_INTERVAL, LOG_LABEL
         )
         for batch in range(len(train_dataloader)):
             for key in deltas[batch]:
                 deltas[batch][key] = epoch_deltas[batch][key] + deltas[batch][key]
-        model_trainer.test(test_dataloader, log_label=LOG_LABEL)
+        accuracies.append(
+            (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="Train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloader,
+                    log_label="Retain train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=test_dataloader, log_label="Test dataset"
+                ),
+            )
+        )
         logger_regular.info(
             f"{LOG_LABEL} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
         )
@@ -395,6 +386,8 @@ def amnesiac_unlearning(
     path_unlearning_datasets: str,
     path_amnesiac_target_model: str,
     path_amnesiac_deltas: str,
+    path_amnesiac_unlearning_accuracies: str,
+    target_batches: list[int],
 ):
     LOG_LABEL = "Training of amnesiac unlearning"
     (
@@ -406,13 +399,13 @@ def amnesiac_unlearning(
         rate,
     ) = torch.load(path_unlearning_datasets)
     train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, BATCH_SIZE, shuffle=True
+        train_dataset, BATCH_SIZE, shuffle=False
     )
     forget_train_dataloader = torch.utils.data.DataLoader(
-        forget_train_dataset, BATCH_SIZE, shuffle=True
+        forget_train_dataset, BATCH_SIZE, shuffle=False
     )
     retain_train_dataloader = torch.utils.data.DataLoader(
-        retain_train_dataset, BATCH_SIZE, shuffle=True
+        retain_train_dataset, BATCH_SIZE, shuffle=False
     )
     test_dataloader = torch.utils.data.DataLoader(
         test_dataset, BATCH_SIZE, shuffle=True
@@ -423,8 +416,54 @@ def amnesiac_unlearning(
     deltas = torch.load(path_amnesiac_deltas)
     logger_regular.info(f"Amnesiac deltas is loaded from {path_amnesiac_deltas}.")
 
+    with torch.no_grad():
+        state = model_trainer.model.state_dict()
+        for batch_index in target_batches:
+            for param_tensor in state:
+                if "weight" in param_tensor or "bias" in param_tensor:
+                    state[param_tensor] = (
+                        state[param_tensor]
+                        - AMNESIAC_RATE * deltas[batch_index][param_tensor]
+                    )
+        model_trainer.model.load_state_dict(state)
+
     model_trainer.model = model_trainer.model.to(DEVICE)
     model_trainer.optimizer_to(DEVICE)
+
+    accuracies = []
+    for epoch in range(NUM_EPOCHS_UNLEARN):
+        start_time = time.perf_counter()
+        model_trainer.train(
+            epoch=epoch, train_dataloader=retain_train_dataloader, log_label=LOG_LABEL
+        )
+        accuracies.append(
+            (
+                model_trainer.test(
+                    test_dataloader=train_dataloader, log_label="All train dataset"
+                ),
+                model_trainer.test(
+                    test_dataloader=forget_train_dataloader,
+                    log_label="Forget train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=retain_train_dataloader,
+                    log_label="Retain train dataset",
+                ),
+                model_trainer.test(
+                    test_dataloader=test_dataloader, log_label="Test dataset"
+                ),
+            )
+        )
+        logger_regular.info(
+            f"{LOG_LABEL} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+        )
+
+    model_trainer.model = model_trainer.model.to("cpu")
+    model_trainer.optimizer_to("cpu")
+
+    model_trainer.save(path_amnesiac_target_model)
+    torch.save(accuracies, path_amnesiac_unlearning_accuracies)
+    logger_regular.info(f"Accuracies is saved at {path_amnesiac_unlearning_accuracies}")
 
 
 def split_dataset_by_rate(path_unlearning_datasets: str, rate: float):
@@ -460,13 +499,22 @@ def main():
 
     PATH_TARGET_MODEL = f"data/target_model_{DATETIME}.pt"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
+
     PATH_RETAIN_MODEL = f"data/retain_model_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
+
     PATH_CATASTROPHIC_MODEL = f"data/catastrophic_model_{DATETIME}.pt"
     PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
+
     PATH_RELABELING_MODEL = f"data/relabeling_model_{DATETIME}.pt"
     PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
 
+    PATH_AMNESIAC_MODEL = f"data/amnesiac_model_{DATETIME}.pt"
+    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_DELTAS = f"data/amnesiac_deltas_{DATETIME}.pt"
+    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
+
+    # ---
     # PATH_TARGET_MODEL = f"data/target_model_2024-12-06-07:30:33.pt"
     # PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     # PATH_RETAIN_MODEL = f"data/retain_model_{DATETIME}.pt"
@@ -478,7 +526,7 @@ def main():
 
     # PATH_UNLEARNING_DATASET = f"data/unlearning_datasets_2024-12-06-07:30:33.pt"
 
-    split_dataset_by_rate(PATH_UNLEARNING_DATASETS, 0.05)
+    split_dataset_by_rate(PATH_UNLEARNING_DATASETS, UNLEARN_RATE)
     train_target_model(PATH_UNLEARNING_DATASETS, PATH_TARGET_MODEL, PATH_TARGET_METRICS)
     retain(PATH_UNLEARNING_DATASETS, PATH_RETAIN_MODEL, PATH_RETAIN_METRICS)
     catastrophic_unlearn(
