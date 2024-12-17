@@ -1,6 +1,5 @@
 import matplotlib.axes
 import torch
-import torchvision
 import time
 import datetime
 import matplotlib
@@ -25,18 +24,18 @@ CUDA_INDEX = 0
 DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_CHANNELS = 3
-NUM_CLASSES = 9
-BATCH_SIZE = 16
-NUM_EPOCHS = 1
-NUM_EPOCHS_UNLEARN = 1
+NUM_CLASSES = 100
+BATCH_SIZE = 32
+NUM_EPOCHS = 10
+NUM_EPOCHS_UNLEARN = 5
 AMNESIAC_RATE = 1
 
 TARGET_CLASSES = [3]
 
 
 def get_model_trainer():
-    # return get_resnet18_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
-    return get_resnet50_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
+    return get_resnet18_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
+    # return get_resnet50_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
 
 
 def get_metrics(
@@ -591,8 +590,8 @@ def amnesiac_unlearning(
 
 
 def split_unlearning_datasets(path_unlearning_datasets: str):
-    train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
-    # train_dataset, test_dataset = get_CIFAR100_dataset()
+    # train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
+    train_dataset, test_dataset = get_CIFAR100_dataset()
 
     forget_train_dataset, retain_train_dataset = split_dataset_by_target_classes(
         train_dataset, target_classes=TARGET_CLASSES
@@ -644,7 +643,7 @@ def main():
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
     # ----
-    PATH_UNLEARNING_DATASETS = f"data/unlearning_datasets_2024-12-10-08:51:34.pt"
+    # PATH_UNLEARNING_DATASETS = f"data/unlearning_datasets_2024-12-10-11:39:54.pt"
 
     # PATH_TARGET_MODEL = f"data/target_model_{DATETIME}.pt"
     # PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
@@ -673,21 +672,21 @@ def main():
 
     start_time = time.perf_counter()
 
-    # split_unlearning_datasets(PATH_UNLEARNING_DATASETS)
-    # train_target_model(PATH_UNLEARNING_DATASETS, PATH_TARGET_MODEL, PATH_TARGET_METRICS)
-    # retain(PATH_UNLEARNING_DATASETS, PATH_RETAIN_MODEL, PATH_RETAIN_METRICS)
-    # catastrophic_unlearn(
-    #     PATH_UNLEARNING_DATASETS,
-    #     PATH_TARGET_MODEL,
-    #     PATH_CATASTROPHIC_MODEL,
-    #     PATH_CATASTROPHIC_METRICS,
-    # )
-    # relabeling_unlearn(
-    #     PATH_UNLEARNING_DATASETS,
-    #     PATH_TARGET_MODEL,
-    #     PATH_RELABELING_MODEL,
-    #     PATH_RELABELING_METRICS,
-    # )
+    split_unlearning_datasets(PATH_UNLEARNING_DATASETS)
+    train_target_model(PATH_UNLEARNING_DATASETS, PATH_TARGET_MODEL, PATH_TARGET_METRICS)
+    retain(PATH_UNLEARNING_DATASETS, PATH_RETAIN_MODEL, PATH_RETAIN_METRICS)
+    catastrophic_unlearn(
+        PATH_UNLEARNING_DATASETS,
+        PATH_TARGET_MODEL,
+        PATH_CATASTROPHIC_MODEL,
+        PATH_CATASTROPHIC_METRICS,
+    )
+    relabeling_unlearn(
+        PATH_UNLEARNING_DATASETS,
+        PATH_TARGET_MODEL,
+        PATH_RELABELING_MODEL,
+        PATH_RELABELING_METRICS,
+    )
     training_of_amnesiac_unlearning(
         PATH_UNLEARNING_DATASETS,
         PATH_AMNESIAC_MODEL,
@@ -704,192 +703,6 @@ def main():
     logger_regular.info(
         f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
     )
-
-
-def show_metrics():
-    DATETIME = "2024-12-08-11:21:17"
-    PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
-    PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
-    PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
-    PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
-    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
-    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
-
-    NUM_EPOCHS = 10
-    NUM_EPOCHS_UNLEARN = 5
-
-    accuracies_target = torch.load(PATH_TARGET_METRICS)
-    accuracies_retain = torch.load(PATH_RETAIN_METRICS)
-    accuracies_catastrophic = torch.load(PATH_CATASTROPHIC_METRICS)
-    accuracies_relabeling = torch.load(PATH_RELABELING_METRICS)
-    accuracies_amnesiac_training = torch.load(PATH_AMNESIAC_TRAINING_METRICS)
-    accuracies_amnesiac_unlearning = torch.load(PATH_AMNESIAC_UNLEARNING_METRICS)
-
-    fig, axes = plt.subplots(1, 4, sharex="all", sharey="all")
-
-    axes[0].set_xlim([-1, NUM_EPOCHS + NUM_EPOCHS_UNLEARN])
-    axes[0].set_ylim([0, 1])
-
-    axes[0].plot(
-        range(NUM_EPOCHS),
-        [accs[0] for accs in accuracies_retain],
-        label="All train dataset",
-    )
-    axes[0].plot(
-        range(NUM_EPOCHS),
-        [accs[1] for accs in accuracies_retain],
-        label="Forget train dataset",
-    )
-    axes[0].plot(
-        range(NUM_EPOCHS),
-        [accs[2] for accs in accuracies_retain],
-        label="Retain train dataset",
-    )
-    axes[0].plot(
-        range(NUM_EPOCHS),
-        [accs[3] for accs in accuracies_retain],
-        label="All test dataset",
-    )
-    axes[0].plot(
-        range(NUM_EPOCHS),
-        [accs[4] for accs in accuracies_retain],
-        label="Forget test dataset",
-    )
-    axes[0].plot(
-        range(NUM_EPOCHS),
-        [accs[5] for accs in accuracies_retain],
-        label="Retain test dataset",
-    )
-    axes[0].set_title("Retain")
-    axes[0].set_xlabel("Epoch")
-    axes[0].set_ylabel("Accuracy")
-    axes[0].legend()
-
-    axes[1].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[0] for accs in accuracies_target]
-        + [accs[0] for accs in accuracies_catastrophic],
-        label="All train dataset",
-    )
-    axes[1].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[1] for accs in accuracies_target]
-        + [accs[1] for accs in accuracies_catastrophic],
-        label="Forget train dataset",
-    )
-    axes[1].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[2] for accs in accuracies_target]
-        + [accs[2] for accs in accuracies_catastrophic],
-        label="Retain train dataset",
-    )
-    axes[1].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[3] for accs in accuracies_target]
-        + [accs[3] for accs in accuracies_catastrophic],
-        label="All test dataset",
-    )
-    axes[1].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[4] for accs in accuracies_target]
-        + [accs[4] for accs in accuracies_catastrophic],
-        label="Forget test dataset",
-    )
-    axes[1].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[5] for accs in accuracies_target]
-        + [accs[5] for accs in accuracies_catastrophic],
-        label="Retain test dataset",
-    )
-    axes[1].set_title("Catastrophic")
-    axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("Accuracy")
-    axes[1].legend()
-
-    axes[2].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[0] for accs in accuracies_target]
-        + [accs[0] for accs in accuracies_relabeling],
-        label="All train dataset",
-    )
-    axes[2].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[1] for accs in accuracies_target]
-        + [accs[1] for accs in accuracies_relabeling],
-        label="Forget train dataset",
-    )
-    axes[2].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[2] for accs in accuracies_target]
-        + [accs[2] for accs in accuracies_relabeling],
-        label="Retain train dataset",
-    )
-    axes[2].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[3] for accs in accuracies_target]
-        + [accs[3] for accs in accuracies_relabeling],
-        label="All test dataset",
-    )
-    axes[2].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[4] for accs in accuracies_target]
-        + [accs[4] for accs in accuracies_relabeling],
-        label="Forget test dataset",
-    )
-    axes[2].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[5] for accs in accuracies_target]
-        + [accs[5] for accs in accuracies_relabeling],
-        label="Retain test dataset",
-    )
-    axes[2].set_title("Relabeling")
-    axes[2].set_xlabel("Epoch")
-    axes[2].set_ylabel("Accuracy")
-    axes[2].legend()
-
-    axes[3].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[0] for accs in accuracies_amnesiac_training]
-        + [accs[0] for accs in accuracies_amnesiac_unlearning],
-        label="All train dataset",
-    )
-    axes[3].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[1] for accs in accuracies_amnesiac_training]
-        + [accs[1] for accs in accuracies_amnesiac_unlearning],
-        label="Forget train dataset",
-    )
-    axes[3].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[2] for accs in accuracies_amnesiac_training]
-        + [accs[2] for accs in accuracies_amnesiac_unlearning],
-        label="Retain train dataset",
-    )
-    axes[3].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[3] for accs in accuracies_amnesiac_training]
-        + [accs[3] for accs in accuracies_amnesiac_unlearning],
-        label="All test dataset",
-    )
-    axes[3].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[4] for accs in accuracies_amnesiac_training]
-        + [accs[4] for accs in accuracies_amnesiac_unlearning],
-        label="Forget test dataset",
-    )
-    axes[3].plot(
-        range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
-        [accs[5] for accs in accuracies_amnesiac_training]
-        + [accs[5] for accs in accuracies_amnesiac_unlearning],
-        label="Retain test dataset",
-    )
-    axes[3].set_title("Amnesiac")
-    axes[3].set_xlabel("Epoch")
-    axes[3].set_ylabel("Accuracy")
-    axes[3].legend()
-
-    plt.suptitle("Unlearning on resnet18 learning CIFAR100 (batch size: 16)")
-    plt.show()
 
 
 def plot_metrics(
@@ -929,14 +742,14 @@ def plot_metrics(
         [data["retain_test"][metrics_type] for data in metrics],
         label="Retain test dataset",
     )
+    print(next(iter(metrics)))
     ax.set_title(f"{metrics_type} on {title}")
     ax.set_xlabel("Epoch")
     ax.set_ylabel(metrics_type)
-    ax.legend()
 
 
-def show_metrics2():
-    DATETIME = "2024-12-10-06:44:08"
+def show_metrics():
+    DATETIME = "2024-12-11-12:05:23"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
     PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
@@ -944,8 +757,8 @@ def show_metrics2():
     PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
-    NUM_EPOCHS = 2
-    NUM_EPOCHS_UNLEARN = 2
+    NUM_EPOCHS = 10
+    NUM_EPOCHS_UNLEARN = 5
     METRICS_TYPES = [
         "accuracy",
         "auroc",
@@ -962,7 +775,7 @@ def show_metrics2():
     metrics_amnesiac_training = torch.load(PATH_AMNESIAC_TRAINING_METRICS)
     metrics_amnesiac_unlearning = torch.load(PATH_AMNESIAC_UNLEARNING_METRICS)
 
-    fig, axes = plt.subplots(4, 4, sharex="all", sharey="all")
+    fig, axes = plt.subplots(5, 4, sharex="all", sharey="all")
 
     for index, metrics_type in enumerate(METRICS_TYPES):
         plot_metrics(
@@ -992,9 +805,18 @@ def show_metrics2():
 
     axes[0][0].set_xlim([-1, NUM_EPOCHS + NUM_EPOCHS_UNLEARN])
     axes[0][0].set_ylim([0, 1])
+    axes[0][3].legend(
+        loc="upper left",
+        bbox_to_anchor=(
+            1.02,
+            1.0,
+        ),
+        borderaxespad=0,
+    )
 
-    plt.suptitle("Unlearning on resnet18 learning CIFAR100 (batch size: 16)")
+    plt.suptitle("Unlearning on resnet18 learning CIFAR100 (batch size: 32)")
+    plt.subplots_adjust(hspace=0.5)
     plt.show()
 
 
-main()
+show_metrics()

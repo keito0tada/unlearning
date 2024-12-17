@@ -293,4 +293,14 @@ def test10():
         return
 
 
-test10()
+def test11():
+    data_x = []
+    for i in range(100):
+        data_x.append(i)
+    dataset = torch.utils.data.TensorDataset(torch.tensor(data_x), torch.tensor(data_x))
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=False)
+    for x, y in dataloader:
+        print(f"{x}, {y}")
+
+
+test11()

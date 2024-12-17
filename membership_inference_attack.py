@@ -19,19 +19,18 @@ from src.utils.data_entry import (
 )
 from src.utils.model_trainer_templates import get_resnet50_trainer, get_resnet18_trainer
 
-from src.log.logger import logger_overwrite, logger_regular, cuda_memory_usage, NOW
+from src.log.logger import logger_overwrite, logger_regular, cuda_memory_usage, NOW, now
 from src.utils.binary_metrics import calc_metrics, BinaryMetrics
 
-matplotlib.use("tkagg")
 
-CUDA_INDEX = 0
+CUDA_INDEX = 1
 DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_SHADOW_MODELS = 20
 NUM_CHANNELS = 3
 NUM_CLASSES = 100
-BATCH_SIZE = 16
-ATTACK_BATCH_SIZE = 16
+BATCH_SIZE = 64
+ATTACK_BATCH_SIZE = 8
 NUM_EPOCHS = 10
 
 
@@ -73,6 +72,8 @@ def get_dataset():
 def generate_target_model(
     path_target_model: str, path_in_dataset: str, path_out_dataset: str
 ):
+    LOG_LABEL = "Generating a target model"
+
     train_dataset, test_dataset = get_dataset()
 
     in_dataset, out_dataset = torch.utils.data.random_split(
@@ -97,7 +98,7 @@ def generate_target_model(
     # train target model
     target_model_trainer = get_model_trainer()
     target_model_trainer.iterate_train(
-        in_dataloader, test_dataloader, NUM_EPOCHS, "target model"
+        in_dataloader, test_dataloader, NUM_EPOCHS, LOG_LABEL
     )
     target_model_trainer.save(path_target_model)
 
@@ -427,18 +428,39 @@ def membership_inference_attack():
         f"NUM_SHADOW_MODEL: {NUM_SHADOW_MODELS}, BATCH_SIZE: {BATCH_SIZE}, ATTACK_BATCH_SIZE: {ATTACK_BATCH_SIZE}, NUM_EPOCHS: {NUM_EPOCHS}"
     )
 
-    start_time = time.perf_counter()
+    # main
+    whole_start_time = start_time = time.perf_counter()
 
     generate_target_model(
         PATH_TARGET_MODEL, PATH_IN_TARGET_DATASET, PATH_OUT_TARGET_DATASET
     )
+    logger_regular.info(
+        f"Generating a target model costs : {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
+    start_time = time.perf_counter()
+
     generate_shadow_models(PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS)
+    logger_regular.info(
+        f"Generating a target model costs : {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
+    start_time = time.perf_counter()
+
     generate_attack_datasets(
         PATH_ATACK_DATASETS, PATH_SHADOW_MODELS, PATH_SHADOW_DATASETS
     )
+    logger_regular.info(
+        f"Generating a target model costs : {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
+    start_time = time.perf_counter()
+
     generate_attack_models(
         PATH_ATACK_DATASETS, PATH_ATTACK_MODELS, PATH_METRICS_TRAINING_ATTACK_MODELS
     )
+    logger_regular.info(
+        f"Generating a target model costs : {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
+    start_time = time.perf_counter()
+
     attack(
         PATH_TARGET_MODEL,
         PATH_IN_TARGET_DATASET,
@@ -446,14 +468,18 @@ def membership_inference_attack():
         PATH_ATTACK_MODELS,
         PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS,
     )
+    logger_regular.info(
+        f"Generating a target model costs : {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
+    start_time = time.perf_counter()
 
     logger_regular.info(
-        f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+        f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - whole_start_time)}"
     )
 
 
 def show_metrics_training_attack_model():
-    DATETIME = "2024-12-09-15:07:22"
+    DATETIME = "2024-12-15-18:27:33"
     PATH_METRICS_TRAINING_ATTACK_MODELS = (
         f"data/metrics_training_attack_models_{DATETIME}.pt"
     )
@@ -600,7 +626,8 @@ def show_metrics_training_attack_model():
     table.auto_set_font_size(False)
     table.set_fontsize(12)
 
-    plt.suptitle("MIA to resnet50 on PathMNIST")
+    plt.suptitle("MIA to resnet18 on CIFAR100")
+    matplotlib.use("tkagg")
     plt.show()
 
 
@@ -639,4 +666,6 @@ def attack_result():
     )
 
 
-membership_inference_attack()
+for i in range(5):
+    membership_inference_attack()
+    NOW = now()
