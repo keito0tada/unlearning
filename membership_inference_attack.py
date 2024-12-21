@@ -23,13 +23,13 @@ from src.log.logger import logger_overwrite, logger_regular, cuda_memory_usage, 
 from src.utils.binary_metrics import calc_metrics, BinaryMetrics
 
 
-CUDA_INDEX = 1
+CUDA_INDEX = 0
 DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_SHADOW_MODELS = 20
-NUM_CHANNELS = 3
-NUM_CLASSES = 100
-BATCH_SIZE = 64
+NUM_CHANNELS = 1
+NUM_CLASSES = 8
+BATCH_SIZE = 32
 ATTACK_BATCH_SIZE = 8
 NUM_EPOCHS = 10
 
@@ -65,8 +65,8 @@ def get_model_trainer() -> ModelTrainer:
 
 
 def get_dataset():
-    return get_CIFAR100_dataset()
-    # return get_MedMNIST_dataset("pathmnist")
+    # return get_CIFAR100_dataset()
+    return get_MedMNIST_dataset("tissuemnist")
 
 
 def generate_target_model(
@@ -293,7 +293,7 @@ def attack(
     path_in_dataset: str,
     path_out_dataset: str,
     path_attack_models: str,
-    path_attack_output_and_target_datasets: str,
+    path_attack_prediction_and_target_datasets: str,
 ):
     # load target model
     target_model_trainer = get_model_trainer()
@@ -360,7 +360,9 @@ def attack(
         )
 
         attack_model_trainer.model = attack_model_trainer.model.to(DEVICE)
-        output, target = attack_model_trainer.get_output_and_target(attack_dataloader)
+        output, target = attack_model_trainer.get_prediction_and_target(
+            attack_dataloader
+        )
         accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
             output, target
         )
@@ -383,10 +385,10 @@ def attack(
         f"Whole | tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
     )
     torch.save(
-        attack_output_and_target_datasets, path_attack_output_and_target_datasets
+        attack_output_and_target_datasets, path_attack_prediction_and_target_datasets
     )
     logger_regular.info(
-        f"Attack output and target datasets are saved at {path_attack_output_and_target_datasets}"
+        f"Attack prediction and target datasets are saved at {path_attack_prediction_and_target_datasets}"
     )
 
 
@@ -406,8 +408,8 @@ def membership_inference_attack():
         f"data/metrics_training_attack_models_{DATETIME}.pt"
     )
 
-    PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS = (
-        f"data/attack_output_and_target_datasets_{DATETIME}.pt"
+    PATH_ATTACK_PREDICTION_AND_TARGET_DATASETS = (
+        f"data/attack_prediction_and_target_datasets_{DATETIME}.pt"
     )
 
     # ---
@@ -466,7 +468,7 @@ def membership_inference_attack():
         PATH_IN_TARGET_DATASET,
         PATH_OUT_TARGET_DATASET,
         PATH_ATTACK_MODELS,
-        PATH_ATTACK_OUTPUT_AND_TARGET_DATASETS,
+        PATH_ATTACK_PREDICTION_AND_TARGET_DATASETS,
     )
     logger_regular.info(
         f"Generating a target model costs : {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
@@ -478,8 +480,7 @@ def membership_inference_attack():
     )
 
 
-def show_metrics_training_attack_model():
-    DATETIME = "2024-12-15-18:27:33"
+def show_metrics_training_attack_model(DATETIME=None):
     PATH_METRICS_TRAINING_ATTACK_MODELS = (
         f"data/metrics_training_attack_models_{DATETIME}.pt"
     )
@@ -626,7 +627,7 @@ def show_metrics_training_attack_model():
     table.auto_set_font_size(False)
     table.set_fontsize(12)
 
-    plt.suptitle("MIA to resnet18 on CIFAR100")
+    plt.suptitle(f"MIA to resnet18 on CIFAR100 ({DATETIME})")
     matplotlib.use("tkagg")
     plt.show()
 
@@ -666,6 +667,8 @@ def attack_result():
     )
 
 
-for i in range(5):
-    membership_inference_attack()
-    NOW = now()
+show_metrics_training_attack_model("2024-12-18-14:09:14")
+show_metrics_training_attack_model("2024-12-18-22:26:29")
+show_metrics_training_attack_model("2024-12-19-06:49:09")
+show_metrics_training_attack_model("2024-12-19-15:07:38")
+show_metrics_training_attack_model("2024-12-19-23:27:54")

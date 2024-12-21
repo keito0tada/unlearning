@@ -19,6 +19,13 @@ def split_dataset_by_target_classes(
     )
 
 
+def split_dataset_by_rate(dataset: torch.utils.data.Dataset, rate: float):
+    new_datasets = torch.utils.data.random_split(
+        dataset, [int(len(dataset) * rate), len(dataset) - int(len(dataset) * rate)]
+    )
+    return new_datasets[0], new_datasets[1]
+
+
 def relabel_dataset_with_target_classes(
     dataset: torch.utils.data.Dataset,
     target_classes: list[int],

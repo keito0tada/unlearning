@@ -78,7 +78,7 @@ class AttackModelTrainer(ModelTrainer):
             )
             self.test(test_dataloader=test_dataloader, log_label=log_label)
 
-            output, target = self.get_output_and_target(test_dataloader)
+            output, target = self.get_prediction_and_target(test_dataloader)
             accuracy, precision, recall, f1_score, confusion_matrix, auroc = (
                 calc_metrics(output, target)
             )
@@ -101,7 +101,7 @@ class AttackModelTrainer(ModelTrainer):
 
         return metrics
 
-    def get_output_and_target(
+    def get_prediction_and_target(
         self, test_dataloader: DataLoader
     ) -> tuple[torch.Tensor, torch.Tensor]:
         self.model.eval()
@@ -115,3 +115,8 @@ class AttackModelTrainer(ModelTrainer):
                 list_target_y.append(y)
 
         return torch.cat(list_pred_y), torch.cat(list_target_y)
+
+    def attack(
+        self, target_model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
+    ):
+        pass
