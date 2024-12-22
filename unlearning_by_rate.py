@@ -14,7 +14,7 @@ from src.utils.data_processing import (
     split_dataset_by_rate,
     relabel_all_dataset,
 )
-from src.log.logger import logger_overwrite, logger_regular, NOW
+from src.log.logger import logger_overwrite, logger_regular, NOW, now
 from src.utils.model_trainer_templates import get_resnet18_trainer, get_resnet50_trainer
 from src.utils.multiclass_metrics import calc_metrics
 from src.attack.membership_inference_attack import (
@@ -27,12 +27,13 @@ CUDA_INDEX = 0
 DEVICE = f"cuda:{CUDA_INDEX}"
 
 NUM_CHANNELS = 3
-NUM_CLASSES = 100
+NUM_CLASSES = 9
 BATCH_SIZE = 64
 NUM_EPOCHS = 10
 NUM_EPOCHS_UNLEARN = 5
 
 UNLEARNING_RATE = 0.05
+AMNESIAC_RATE = 1
 
 
 def get_model_trainer():
@@ -484,10 +485,226 @@ def relabeling_unlearn(
     torch.save(metrics, path_relabeling_metrics)
     logger_regular.info(f"Accuracies is saved at {path_relabeling_metrics}")
 
+def training_of_amnesiac_unlearning(
+    path_unlearning_datasets: str,
+    path_amnesiac_trained_model: str,
+    path_amnesiac_deltas: str,
+    path_amnesiac_training_metrics: str,
+    path_attack_models: str
+):
+    LOG_LABEL = "Training of amnesiac unlearning"
+    (
+        train_dataset,
+        forget_train_dataset,
+        retain_train_dataset,
+        relabeled_train_dataset,
+        test_dataset,
+    ) = torch.load(path_unlearning_datasets)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset, BATCH_SIZE, shuffle=True
+    )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloader = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset, BATCH_SIZE, shuffle=True
+    )
+
+    model_trainer = get_model_trainer()
+    model_trainer.model = model_trainer.model.to(DEVICE)
+    model_trainer.optimizer_to(DEVICE)
+
+    deltas = []
+    for _ in range(len(forget_train_dataloader) + len(retain_train_dataloader)):
+        delta = {}
+        for param_tensor in model_trainer.model.state_dict():
+            if "weight" in param_tensor or "bias" in param_tensor:
+                delta[param_tensor] = 0
+        deltas.append(delta)
+
+    train_time = datetime.timedelta(seconds=0)
+    test_time = datetime.timedelta(seconds=0)
+    metrics = []
+    for epoch in range(NUM_EPOCHS):
+        start_time = time.perf_counter()
+        epoch_deltas = model_trainer.amnesiac_train(
+            forget_train_dataloader, epoch, LOG_LABEL
+        )
+        for batch in range(len(forget_train_dataloader)):
+            for key in deltas[batch]:
+                deltas[batch][key] = epoch_deltas[batch][key] + deltas[batch][key]
+        model_trainer.train(retain_train_dataloader, epoch, LOG_LABEL)
+        train_end_time = time.perf_counter()
+        metrics.append(
+            dict(
+                **get_metrics(
+                    model_trainer,
+                    train_dataloader,
+                    forget_train_dataloader,
+                    retain_train_dataloader,
+                    test_dataloader,
+                ),
+                **{
+                    "mia_retain": membership_inference_attack(
+                        NUM_CLASSES,
+                        BATCH_SIZE,
+                        model_trainer.model,
+                        retain_train_dataset,
+                        None,
+                        path_attack_models,
+                        DEVICE,
+                    ),
+                    "mia_forget": membership_inference_attack(
+                        NUM_CLASSES,
+                        BATCH_SIZE,
+                        model_trainer.model,
+                        None,
+                        forget_train_dataset,
+                        path_attack_models,
+                        DEVICE,
+                    ),
+                    "mia_test": membership_inference_attack(
+                        NUM_CLASSES,
+                        BATCH_SIZE,
+                        model_trainer.model,
+                        None,
+                        test_dataset,
+                        path_attack_models,
+                        DEVICE,
+                    ),
+                },
+            )
+        )
+        test_end_time = time.perf_counter()
+        train_time += datetime.timedelta(seconds=train_end_time - start_time)
+        test_time += datetime.timedelta(seconds=test_end_time - train_end_time)
+    logger_regular.info(
+        f"{LOG_LABEL} | Training costs {train_time}. Testing costs {test_time}."
+    )
+
+    model_trainer.save(path_amnesiac_trained_model)
+    torch.save(deltas, path_amnesiac_deltas)
+    logger_regular.info(f"Amnesiac deltas is saved at {path_amnesiac_deltas}.")
+    torch.save(metrics, path_amnesiac_training_metrics)
+    logger_regular.info(f"Metrics is saved at {path_amnesiac_training_metrics}")
+
+def amnesiac_unlearning(
+    path_unlearning_datasets: str,
+    path_amnesiac_target_model: str,
+    path_amnesiac_deltas: str,
+    path_amnesiac_unlearning_metrics: str,
+    path_attack_models: str
+):
+    LOG_LABEL = "Training of amnesiac unlearning"
+    (
+        train_dataset,
+        forget_train_dataset,
+        retain_train_dataset,
+        relabeled_train_dataset,
+        test_dataset,
+    ) = torch.load(path_unlearning_datasets)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset, BATCH_SIZE, shuffle=True
+    )
+    forget_train_dataloader = torch.utils.data.DataLoader(
+        forget_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    retain_train_dataloader = torch.utils.data.DataLoader(
+        retain_train_dataset, BATCH_SIZE, shuffle=True
+    )
+    test_dataloader = torch.utils.data.DataLoader(
+        test_dataset, BATCH_SIZE, shuffle=True
+    )
+
+    model_trainer = get_model_trainer()
+    model_trainer.load(path_amnesiac_target_model)
+    deltas = torch.load(path_amnesiac_deltas)
+    logger_regular.info(f"Amnesiac deltas is loaded from {path_amnesiac_deltas}.")
+
+    with torch.no_grad():
+        state = model_trainer.model.state_dict()
+        for batch_index in range(len(deltas)):
+            for param_tensor in state:
+                if "weight" in param_tensor or "bias" in param_tensor:
+                    state[param_tensor] = (
+                        state[param_tensor]
+                        - AMNESIAC_RATE * deltas[batch_index][param_tensor]
+                    )
+        model_trainer.model.load_state_dict(state)
+
+    model_trainer.model = model_trainer.model.to(DEVICE)
+    model_trainer.optimizer_to(DEVICE)
+
+    train_time = datetime.timedelta(seconds=0)
+    test_time = datetime.timedelta(seconds=0)
+    metrics = []
+    for epoch in range(NUM_EPOCHS_UNLEARN):
+        start_time = time.perf_counter()
+        model_trainer.train(
+            epoch=epoch, train_dataloader=retain_train_dataloader, log_label=LOG_LABEL
+        )
+        train_end_time = time.perf_counter()
+        metrics.append(
+            dict(
+                **get_metrics(
+                    model_trainer,
+                    train_dataloader,
+                    forget_train_dataloader,
+                    retain_train_dataloader,
+                    test_dataloader,
+                ),
+                **{
+                    "mia_retain": membership_inference_attack(
+                        NUM_CLASSES,
+                        BATCH_SIZE,
+                        model_trainer.model,
+                        retain_train_dataset,
+                        None,
+                        path_attack_models,
+                        DEVICE,
+                    ),
+                    "mia_forget": membership_inference_attack(
+                        NUM_CLASSES,
+                        BATCH_SIZE,
+                        model_trainer.model,
+                        None,
+                        forget_train_dataset,
+                        path_attack_models,
+                        DEVICE,
+                    ),
+                    "mia_test": membership_inference_attack(
+                        NUM_CLASSES,
+                        BATCH_SIZE,
+                        model_trainer.model,
+                        None,
+                        test_dataset,
+                        path_attack_models,
+                        DEVICE,
+                    ),
+                },
+            )
+        )
+        test_end_time = time.perf_counter()
+        train_time += datetime.timedelta(seconds=train_end_time - start_time)
+        test_time += datetime.timedelta(seconds=test_end_time - train_end_time)
+    logger_regular.info(
+        f"{LOG_LABEL} | Training costs {train_time}. Testing costs {test_time}."
+    )
+
+    model_trainer.model = model_trainer.model.to("cpu")
+    model_trainer.optimizer_to("cpu")
+
+    model_trainer.save(path_amnesiac_target_model)
+    torch.save(metrics, path_amnesiac_unlearning_metrics)
+    logger_regular.info(f"Metrics is saved at {path_amnesiac_unlearning_metrics}")
+
 
 def split_unlearning_datasets(path_unlearning_datasets: str):
-    # train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
-    train_dataset, test_dataset = get_CIFAR100_dataset()
+    train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
+    # train_dataset, test_dataset = get_CIFAR100_dataset()
     # train_dataset, test_dataset = get_MNIST_dataset()
 
     forget_train_dataset, retain_train_dataset = split_dataset_by_rate(
@@ -528,7 +745,12 @@ def main():
     PATH_RELABELING_MODEL = f"data/relabeling_model_{DATETIME}.pt"
     PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
 
-    PATH_ATTACK_MODELS = f"model/attack_model_{{}}_2024-12-19-23:27:54.pt"
+    PATH_AMNESIAC_MODEL = f"data/amnesiac_model_{DATETIME}.pt"
+    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_DELTAS = f"data/amnesiac_deltas_{DATETIME}.pt"
+    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
+
+    PATH_ATTACK_MODELS = f"model/attack_model_{{}}_2024-12-18-13:30:15.pt"
 
     # ----
     # PATH_UNLEARNING_DATASETS = f"data/unlearning_datasets_2024-12-10-11:39:54.pt"
@@ -550,6 +772,7 @@ def main():
     logger_regular.info(f"BATCH_SIZE: {BATCH_SIZE}, NUM_EPOCH: {NUM_EPOCHS}")
     logger_regular.info(f"NUM_EPOCHS_UNLEARN: {NUM_EPOCHS_UNLEARN}")
     logger_regular.info(f"UNLEARNING RATE: {UNLEARNING_RATE}")
+    logger_regular.info(f"AMNESIAC RATE: {AMNESIAC_RATE}")
 
     start_time = time.perf_counter()
 
@@ -580,6 +803,12 @@ def main():
         PATH_RELABELING_METRICS,
         PATH_ATTACK_MODELS,
     )
+    training_of_amnesiac_unlearning(
+        PATH_UNLEARNING_DATASETS,PATH_AMNESIAC_MODEL,PATH_AMNESIAC_DELTAS,PATH_AMNESIAC_TRAINING_METRICS,PATH_ATTACK_MODELS
+    )
+    amnesiac_unlearning(
+        PATH_UNLEARNING_DATASETS,PATH_AMNESIAC_MODEL,PATH_AMNESIAC_DELTAS,PATH_AMNESIAC_UNLEARNING_METRICS,PATH_ATTACK_MODELS
+    )
 
     logger_regular.info(
         f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
@@ -605,15 +834,15 @@ def plot_metrics(
     ax.set_ylabel(metrics_type)
 
 
-def show_metrics():
-    DATETIME = "2024-12-21-18:51:45"
+def show_metrics(DATETIME=NOW):
+    # DATETIME = "2024-12-21-18:51:45"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
     PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
     PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
 
-    # DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
-    DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
+    DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
+    # DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
     METRICS_TYPES = [
         "accuracy",
         "auroc",
@@ -667,15 +896,17 @@ def show_metrics():
         borderaxespad=0,
     )
 
-    plt.suptitle(f"MIA to unlearning on resnet18 learning CIFAR100 ({DATETIME})")
+    plt.suptitle(f"Unlearning on resnet18 learning PathMNIST ({DATETIME})")
     plt.subplots_adjust(hspace=0.5)
     plt.show()
 
-
 main()
 UNLEARNING_RATE = 0.1
+NOW = now()
 main()
 UNLEARNING_RATE = 0.15
+NOW = now()
 main()
 UNLEARNING_RATE = 0.2
+NOW = now()
 main()
