@@ -3,6 +3,7 @@ import torch
 import time
 import datetime
 import matplotlib
+import numpy as np
 from matplotlib import pyplot as plt
 from src.model_trainer.model_trainer import ModelTrainer
 from src.utils.data_entry import (
@@ -485,12 +486,13 @@ def relabeling_unlearn(
     torch.save(metrics, path_relabeling_metrics)
     logger_regular.info(f"Accuracies is saved at {path_relabeling_metrics}")
 
+
 def training_of_amnesiac_unlearning(
     path_unlearning_datasets: str,
     path_amnesiac_trained_model: str,
     path_amnesiac_deltas: str,
     path_amnesiac_training_metrics: str,
-    path_attack_models: str
+    path_attack_models: str,
 ):
     LOG_LABEL = "Training of amnesiac unlearning"
     (
@@ -591,12 +593,13 @@ def training_of_amnesiac_unlearning(
     torch.save(metrics, path_amnesiac_training_metrics)
     logger_regular.info(f"Metrics is saved at {path_amnesiac_training_metrics}")
 
+
 def amnesiac_unlearning(
     path_unlearning_datasets: str,
     path_amnesiac_target_model: str,
     path_amnesiac_deltas: str,
     path_amnesiac_unlearning_metrics: str,
-    path_attack_models: str
+    path_attack_models: str,
 ):
     LOG_LABEL = "Training of amnesiac unlearning"
     (
@@ -804,10 +807,18 @@ def main():
         PATH_ATTACK_MODELS,
     )
     training_of_amnesiac_unlearning(
-        PATH_UNLEARNING_DATASETS,PATH_AMNESIAC_MODEL,PATH_AMNESIAC_DELTAS,PATH_AMNESIAC_TRAINING_METRICS,PATH_ATTACK_MODELS
+        PATH_UNLEARNING_DATASETS,
+        PATH_AMNESIAC_MODEL,
+        PATH_AMNESIAC_DELTAS,
+        PATH_AMNESIAC_TRAINING_METRICS,
+        PATH_ATTACK_MODELS,
     )
     amnesiac_unlearning(
-        PATH_UNLEARNING_DATASETS,PATH_AMNESIAC_MODEL,PATH_AMNESIAC_DELTAS,PATH_AMNESIAC_UNLEARNING_METRICS,PATH_ATTACK_MODELS
+        PATH_UNLEARNING_DATASETS,
+        PATH_AMNESIAC_MODEL,
+        PATH_AMNESIAC_DELTAS,
+        PATH_AMNESIAC_UNLEARNING_METRICS,
+        PATH_ATTACK_MODELS,
     )
 
     logger_regular.info(
@@ -824,11 +835,37 @@ def plot_metrics(
     title: str,
 ):
     for dataset_type in dataset_types:
-        ax.plot(
-            x,
-            [data[dataset_type][metrics_type] for data in metrics],
-            label=dataset_type,
-        )
+        if metrics_type == "confusion_matrix":
+            # ax.axis("off")
+            # table = ax.table(
+            #     cellText=np.array(
+            #         [
+            #             [
+            #                 data[dataset_type][metrics_type][1][1],
+            #                 data[dataset_type][metrics_type][1][0],
+            #                 data[dataset_type][metrics_type][0][1],
+            #                 data[dataset_type][metrics_type][0][0],
+            #             ]
+            #             for data in metrics
+            #         ]
+            #     ).T,
+            #     colLabels=x,
+            #     rowLabels=["tp", "fn", "fp", "tn"],
+            # )
+            # table.auto_set_font_size(False)
+            # table.set_fontsize(8)
+            # ax.bar(
+            #     x,
+            #     [data[dataset_type][metrics_type][1][1] for data in metrics],
+            #     label=dataset_type,
+            # )
+            pass
+        else:
+            ax.plot(
+                x,
+                [data[dataset_type][metrics_type] for data in metrics],
+                label=dataset_type,
+            )
     ax.set_title(f"{metrics_type} on {title}")
     ax.set_xlabel("Epoch")
     ax.set_ylabel(metrics_type)
@@ -840,24 +877,28 @@ def show_metrics(DATETIME=NOW):
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
     PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
     PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
-    DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
-    # DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
+    # DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
+    DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
     METRICS_TYPES = [
         "accuracy",
         "auroc",
-        # "confusion matrix",
         "f1_score",
         "precision",
         "recall",
+        # "confusion_matrix",
     ]
 
     metrics_target = torch.load(PATH_TARGET_METRICS)
     metrics_retain = torch.load(PATH_RETAIN_METRICS)
     metrics_catastrophic = torch.load(PATH_CATASTROPHIC_METRICS)
     metrics_relabeling = torch.load(PATH_RELABELING_METRICS)
+    metrics_amnesiac_training = torch.load(PATH_AMNESIAC_TRAINING_METRICS)
+    metrics_amnesiac_unlearning = torch.load(PATH_AMNESIAC_UNLEARNING_METRICS)
 
-    fig, axes = plt.subplots(5, 3, sharex="all", sharey="all")
+    fig, axes = plt.subplots(6, 4, sharex="all", sharey="all")
 
     for index, metrics_type in enumerate(METRICS_TYPES):
         plot_metrics(
@@ -884,10 +925,18 @@ def show_metrics(DATETIME=NOW):
             metrics_type,
             "Relabeling",
         )
+        plot_metrics(
+            axes[index][3],
+            range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+            metrics_amnesiac_training + metrics_amnesiac_unlearning,
+            DATASET_TYPES,
+            metrics_type,
+            "Amnesiac",
+        )
 
     axes[0][0].set_xlim([-1, NUM_EPOCHS + NUM_EPOCHS_UNLEARN])
     axes[0][0].set_ylim([0, 1])
-    axes[0][2].legend(
+    axes[0][3].legend(
         loc="upper left",
         bbox_to_anchor=(
             1.02,
@@ -900,13 +949,8 @@ def show_metrics(DATETIME=NOW):
     plt.subplots_adjust(hspace=0.5)
     plt.show()
 
-main()
-UNLEARNING_RATE = 0.1
-NOW = now()
-main()
-UNLEARNING_RATE = 0.15
-NOW = now()
-main()
-UNLEARNING_RATE = 0.2
-NOW = now()
-main()
+
+show_metrics("2024-12-22-23:44:54")
+# show_metrics('2024-12-23-01:19:27')
+# show_metrics('2024-12-23-02:53:54')
+# show_metrics('2024-12-23-04:28:27')
