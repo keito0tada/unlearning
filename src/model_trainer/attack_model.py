@@ -68,7 +68,8 @@ class AttackModelTrainer(ModelTrainer):
         self.model = self.model.to(self.device)
         self.optimizer_to(self.device)
 
-        metrics = []
+        predictions = []
+        targets = []
 
         for epoch in range(training_epochs):
             start_time = time.perf_counter()
@@ -78,20 +79,17 @@ class AttackModelTrainer(ModelTrainer):
             )
             self.test(test_dataloader=test_dataloader, log_label=log_label)
 
-            output, target = self.get_prediction_and_target(test_dataloader)
-            accuracy, precision, recall, f1_score, confusion_matrix, auroc = (
-                calc_metrics(output, target)
-            )
-            logger_regular.info(
-                f"Epoch {epoch} | Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
-            )
-            logger_regular.info(
-                f"Epoch {epoch} | tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
-            )
-            metrics.append(
-                (accuracy, precision, recall, f1_score, confusion_matrix, auroc)
-            )
+            prediction, target = self.get_prediction_and_target(test_dataloader)
+            predictions.append(prediction)
+            targets.append(target)
 
+            metrics = calc_metrics(prediction, target)
+            logger_regular.info(
+                f"Whole | Accuracy: {metrics['accuracy']}, Precision: {metrics['precision']}, Recall: {metrics['recall']}, f1_score: {metrics['f1_score']}, AUROC: {metrics['auroc']}"
+            )
+            logger_regular.info(
+                f"Whole | tp: {metrics['confusion_matrix'][0][0]}, fn: {metrics['confusion_matrix'][0][1]}, fp: {metrics['confusion_matrix'][1][0]}, tn: {metrics['confusion_matrix'][1][1]}"
+            )
             logger_regular.info(
                 f"{log_label} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
             )
@@ -99,7 +97,7 @@ class AttackModelTrainer(ModelTrainer):
         self.model = self.model.to("cpu")
         self.optimizer_to("cpu")
 
-        return metrics
+        return predictions, targets
 
     def get_prediction_and_target(
         self, test_dataloader: DataLoader
@@ -115,8 +113,3 @@ class AttackModelTrainer(ModelTrainer):
                 list_target_y.append(y)
 
         return torch.cat(list_pred_y), torch.cat(list_target_y)
-
-    def attack(
-        self, target_model: torch.nn.Module, dataloader: torch.utils.data.DataLoader
-    ):
-        pass

@@ -31,13 +31,11 @@ def get_attack_model_trainer(num_classes: int, device: str) -> AttackModelTraine
     return attack_model_trainer
 
 
-def membership_inference_attack(
+def generate_attack_datasets(
     num_classes: int,
-    batch_size: int,
     target_model: torch.nn.Module,
     in_dataset: Optional[torch.utils.data.Dataset],
     out_dataset: Optional[torch.utils.data.Dataset],
-    path_attack_models: str,
     device: str,
 ):
     if in_dataset is None and out_dataset is None:
@@ -66,7 +64,7 @@ def membership_inference_attack(
                 pred_y = target_model(X).view(num_classes)
                 if torch.argmax(pred_y).item() == y:
                     predictions[y].append(nn.functional.softmax(pred_y, dim=0))
-                    labels[y].append(0)
+                    labels[y].append(1)
 
                 if i % 100 == 0:
                     logger_overwrite.debug(f"{i} / {len(in_dataloader)}")
@@ -77,19 +75,25 @@ def membership_inference_attack(
                 X = X.to(device)
                 pred_y = target_model(X).view(num_classes)
                 predictions[y].append(nn.functional.softmax(pred_y, dim=0))
-                labels[y].append(1)
+                labels[y].append(0)
 
                 if i % 100 == 0:
                     logger_overwrite.debug(f"{i} / {len(out_dataloader)}")
 
-    # attack
+    return predictions, labels
+
+
+def attack(
+    num_classes: int,
+    batch_size: int,
+    path_attack_models: str,
+    predictions: list[list],
+    labels: list[list],
+    device: str,
+):
     attack_prediction_and_target_datasets = []
     for target_class in range(num_classes):
         logger_regular.info(f"Class {target_class}")
-
-        # load attack model
-        attack_model_trainer = get_attack_model_trainer(num_classes, device)
-        attack_model_trainer.load(path_attack_models.format(target_class))
 
         if len(predictions[target_class]) == 0:
             attack_prediction_and_target_datasets.append((None, None))
@@ -104,20 +108,44 @@ def membership_inference_attack(
             attack_dataset, batch_size=batch_size, shuffle=True
         )
 
+        attack_model_trainer = get_attack_model_trainer(num_classes, device)
+        attack_model_trainer.load(path_attack_models.format(target_class))
+
         attack_model_trainer.model = attack_model_trainer.model.to(device)
-        output, target = attack_model_trainer.get_prediction_and_target(
+        prediction, target = attack_model_trainer.get_prediction_and_target(
             attack_dataloader
         )
-        accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
-            output, target
+        attack_model_trainer.model = attack_model_trainer.model.to("cpu")
+
+        metrics = calc_metrics(prediction, target)
+        logger_regular.info(
+            f"Whole | Accuracy: {metrics['accuracy']}, Precision: {metrics['precision']}, Recall: {metrics['recall']}, f1_score: {metrics['f1_score']}, AUROC: {metrics['auroc']}"
         )
-        logger_regular.debug(
-            f"Class: {target_class} | Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
+        logger_regular.info(
+            f"Whole | tp: {metrics['confusion_matrix'][0][0]}, fn: {metrics['confusion_matrix'][0][1]}, fp: {metrics['confusion_matrix'][1][0]}, tn: {metrics['confusion_matrix'][1][1]}"
         )
-        logger_regular.debug(
-            f"Class: {target_class} | tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
-        )
-        attack_prediction_and_target_datasets.append((output, target))
+
+        attack_prediction_and_target_datasets.append((prediction, target))
+
+    return attack_prediction_and_target_datasets
+
+
+def membership_inference_attack(
+    num_classes: int,
+    batch_size: int,
+    target_model: torch.nn.Module,
+    in_dataset: Optional[torch.utils.data.Dataset],
+    out_dataset: Optional[torch.utils.data.Dataset],
+    path_attack_models: str,
+    device: str,
+):
+    predictions, labels = generate_attack_datasets(
+        num_classes, target_model, in_dataset, out_dataset, device
+    )
+
+    attack_prediction_and_target_datasets = attack(
+        num_classes, batch_size, path_attack_models, predictions, labels
+    )
 
     accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
         torch.cat(

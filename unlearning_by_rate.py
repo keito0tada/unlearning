@@ -3,7 +3,6 @@ import torch
 import time
 import datetime
 import matplotlib
-import numpy as np
 from matplotlib import pyplot as plt
 from src.model_trainer.model_trainer import ModelTrainer
 from src.utils.data_entry import (
@@ -880,8 +879,8 @@ def show_metrics(DATETIME=NOW, is_show=True):
     PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
-    DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
-    # DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
+    # DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
+    DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
     METRICS_TYPES = [
         "accuracy",
         "auroc",
@@ -945,7 +944,7 @@ def show_metrics(DATETIME=NOW, is_show=True):
         borderaxespad=0,
     )
 
-    plt.suptitle(f"Unlearning on resnet18 learning CIFAR100({DATETIME})")
+    plt.suptitle(f"MIA to unlearning on resnet18 trained on CIFAR100({DATETIME})")
     plt.subplots_adjust(hspace=0.5)
     if is_show:
         plt.show()
@@ -974,8 +973,117 @@ def show_confusion_matrix(DATETIME=NOW):
         print(confusion_matrix)
 
 
-show_confusion_matrix("2024-12-22-23:44:54")
-# show_metrics("2024-12-23-07:54:34", False)
+def calc_metrics_from_confusion_matrix(confusion_matrixes: list):
+    tp = confusion_matrixes[0][0]
+    fn = confusion_matrixes[0][1]
+    fp = confusion_matrixes[1][0]
+    tn = confusion_matrixes[1][1]
+
+    accuracy = (tp + tn) / (tp + fn + fp + tn)
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+
+    return accuracy, precision, recall
+
+
+def show_metrics_with_pn_swapped(DATETIME=NOW):
+    PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
+    PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
+    PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
+    PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
+
+    metrics_target = torch.load(PATH_TARGET_METRICS)
+    metrics_retain = torch.load(PATH_RETAIN_METRICS)
+    metrics_catastrophic = torch.load(PATH_CATASTROPHIC_METRICS)
+    metrics_relabeling = torch.load(PATH_RELABELING_METRICS)
+    metrics_amnesiac_training = torch.load(PATH_AMNESIAC_TRAINING_METRICS)
+    metrics_amnesiac_unlearning = torch.load(PATH_AMNESIAC_UNLEARNING_METRICS)
+
+    # DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
+    DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
+    METRICS_TYPES = ["accuracy", "precision", "recall"]
+
+    metrics_target = [
+        [
+            calc_metrics_from_confusion_matrix(data[dataset_type]["confusion_matrix"])
+            for data in metrics_target
+        ]
+        for dataset_type in DATASET_TYPES
+    ]
+    metrics_retain = [
+        [
+            calc_metrics_from_confusion_matrix(data[dataset_type]["confusion_matrix"])
+            for data in metrics_retain
+        ]
+        for dataset_type in DATASET_TYPES
+    ]
+    metrics_catastrophic = [
+        [
+            calc_metrics_from_confusion_matrix(data[dataset_type]["confusion_matrix"])
+            for data in metrics_catastrophic
+        ]
+        for dataset_type in DATASET_TYPES
+    ]
+    metrics_relabeling = [
+        [
+            calc_metrics_from_confusion_matrix(data[dataset_type]["confusion_matrix"])
+            for data in metrics_relabeling
+        ]
+        for dataset_type in DATASET_TYPES
+    ]
+    metrics_amnesiac_training = [
+        [
+            calc_metrics_from_confusion_matrix(data[dataset_type]["confusion_matrix"])
+            for data in metrics_amnesiac_training
+        ]
+        for dataset_type in DATASET_TYPES
+    ]
+    metrics_amnesiac_unlearning = [
+        [
+            calc_metrics_from_confusion_matrix(data[dataset_type]["confusion_matrix"])
+            for data in metrics_amnesiac_unlearning
+        ]
+        for dataset_type in DATASET_TYPES
+    ]
+
+    print(metrics_retain)
+
+    fig, axes = plt.subplots(3, 4, sharex="all", sharey="all", figsize=(10, 12))
+    for i, metrics_type in enumerate(["accuracy", "precision", "recall"]):
+        for j, dataset_type in enumerate(DATASET_TYPES):
+            axes[i][0].plot(
+                range(NUM_EPOCHS),
+                [data[i] for data in metrics_retain[j]],
+                label=metrics_type,
+            )
+            axes[i][1].plot(
+                range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+                [data[i] for data in metrics_target[j]]
+                + [data[i] for data in metrics_catastrophic[j]],
+                label=metrics_type,
+            )
+            axes[i][2].plot(
+                range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+                [data[i] for data in metrics_target[j]]
+                + [data[i] for data in metrics_catastrophic[j]],
+                label=metrics_type,
+            )
+            axes[i][3].plot(
+                range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
+                [data[i] for data in metrics_amnesiac_training[j]]
+                + [data[i] for data in metrics_amnesiac_unlearning[j]],
+                label=metrics_type,
+            )
+
+    axes[0][0].set_xlim([-1, NUM_EPOCHS + NUM_EPOCHS_UNLEARN])
+    axes[0][0].set_ylim([0, 1])
+    plt.show()
+
+
+# show_confusion_matrix("2024-12-22-23:44:54")
+show_metrics_with_pn_swapped("2024-12-22-23:44:54")
 # show_metrics('2024-12-23-01:19:27')
 # show_metrics('2024-12-23-02:53:54')
 # show_metrics('2024-12-23-04:28:27')
