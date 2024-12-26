@@ -871,7 +871,7 @@ def plot_metrics(
     ax.set_ylabel(metrics_type)
 
 
-def show_metrics(DATETIME=NOW):
+def show_metrics(DATETIME=NOW, is_show=True):
     # DATETIME = "2024-12-21-18:51:45"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
@@ -880,8 +880,8 @@ def show_metrics(DATETIME=NOW):
     PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
-    # DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
-    DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
+    DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
+    # DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
     METRICS_TYPES = [
         "accuracy",
         "auroc",
@@ -898,7 +898,7 @@ def show_metrics(DATETIME=NOW):
     metrics_amnesiac_training = torch.load(PATH_AMNESIAC_TRAINING_METRICS)
     metrics_amnesiac_unlearning = torch.load(PATH_AMNESIAC_UNLEARNING_METRICS)
 
-    fig, axes = plt.subplots(6, 4, sharex="all", sharey="all")
+    fig, axes = plt.subplots(5, 4, sharex="all", sharey="all", figsize=(12, 8))
 
     for index, metrics_type in enumerate(METRICS_TYPES):
         plot_metrics(
@@ -945,12 +945,37 @@ def show_metrics(DATETIME=NOW):
         borderaxespad=0,
     )
 
-    plt.suptitle(f"Unlearning on resnet18 learning PathMNIST ({DATETIME})")
+    plt.suptitle(f"Unlearning on resnet18 learning CIFAR100({DATETIME})")
     plt.subplots_adjust(hspace=0.5)
-    plt.show()
+    if is_show:
+        plt.show()
+    else:
+        plt.savefig(f"image/unlearning_resnet18_trained_on_CIFAR100_{DATETIME}.png")
 
 
-show_metrics("2024-12-22-23:44:54")
+def show_confusion_matrix(DATETIME=NOW):
+    PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
+    PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
+
+    metrics_amnesiac_training = torch.load(PATH_AMNESIAC_TRAINING_METRICS)
+    metrics_amnesiac_unlearning = torch.load(PATH_AMNESIAC_UNLEARNING_METRICS)
+
+    data_type = "mia_forget"
+    confusion_matrixes = [
+        {
+            "tn": data[data_type]["confusion_matrix"][1][1].item(),
+            "fp": data[data_type]["confusion_matrix"][1][0].item(),
+            "fn": data[data_type]["confusion_matrix"][0][1].item(),
+            "tp": data[data_type]["confusion_matrix"][0][0].item(),
+        }
+        for data in metrics_amnesiac_training + metrics_amnesiac_unlearning
+    ]
+    for confusion_matrix in confusion_matrixes:
+        print(confusion_matrix)
+
+
+show_confusion_matrix("2024-12-22-23:44:54")
+# show_metrics("2024-12-23-07:54:34", False)
 # show_metrics('2024-12-23-01:19:27')
 # show_metrics('2024-12-23-02:53:54')
 # show_metrics('2024-12-23-04:28:27')
