@@ -9,29 +9,31 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from src.model_trainer.model_trainer import ModelTrainer
-from src.model_trainer.cifar100 import CIFAR100ModelTrainer
 from src.model_trainer.attack_model import AttackModelTrainer
 from src.utils.data_entry import (
-    get_CIFAR100_dataloader,
     get_CIFAR100_dataset,
-    get_MNIST_dataloader,
     get_MNIST_dataset,
     get_MedMNIST_dataset,
+    get_num_channels_and_classes_of_dataset,
 )
 from src.utils.model_trainer_templates import get_resnet50_trainer, get_resnet18_trainer
 
 from src.log.logger import logger_overwrite, logger_regular, cuda_memory_usage, NOW, now
-from src.utils.binary_metrics import calc_metrics, BinaryMetrics
+from src.utils.binary_metrics import calc_metrics
 from src.attack.membership_inference_attack import generate_attack_datasets, attack
 
 
 CUDA_INDEX = 0
 DEVICE = f"cuda:{CUDA_INDEX}"
 
+# DATASET = "CIFAR100"
+# DATASET = "PathMNIST"
+DATASET = "TissueMNIST"
+# DATASET = "MNIST"
+NUM_CHANNELS, NUM_CLASSES = get_num_channels_and_classes_of_dataset(DATASET)
+
 NUM_SHADOW_MODELS = 20
-NUM_CHANNELS = 3
-NUM_CLASSES = 100
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 ATTACK_BATCH_SIZE = 8
 NUM_EPOCHS = 10
 
@@ -67,8 +69,16 @@ def get_model_trainer() -> ModelTrainer:
 
 
 def get_dataset():
-    return get_CIFAR100_dataset()
-    # return get_MedMNIST_dataset("tissuemnist")
+    if DATASET == "CIFAR100":
+        return get_CIFAR100_dataset()
+    elif DATASET == "PathMNIST":
+        return get_MedMNIST_dataset("pathmnist")
+    elif DATASET == "TissueMNIST":
+        return get_MedMNIST_dataset("tissuemnist")
+    elif DATASET == "MNIST":
+        return get_MNIST_dataset()
+    else:
+        raise Exception
 
 
 def generate_target_model(
@@ -485,11 +495,11 @@ def show_metrics(DATETIME=NOW, is_save=True):
     table.set_fontsize(12)
     table.scale(1, 2)
 
-    plt.suptitle(f"MIA to resnet18 trained on CIFAR100 ({DATETIME})")
-    matplotlib.use("tkagg")
+    plt.suptitle(f"MIA to resnet18 trained on {DATASET} ({DATETIME})")
     if is_save:
-        plt.savefig(f"image/mia_to_resnet18_trained_on_CIFAR100_{DATETIME}.png")
+        plt.savefig(f"image/mia_to_resnet18_trained_on_{DATASET}_{DATETIME}.png")
     else:
+        matplotlib.use("tkagg")
         plt.show()
 
 
