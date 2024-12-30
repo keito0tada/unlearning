@@ -6,6 +6,17 @@ import numpy as np
 import medmnist
 from src.log.logger import logger_regular
 
+
+def get_num_channels_and_classes_of_dataset(dataset: str):
+    num_channels_and_classes = {
+        "CIFAR100": (3, 100),
+        "MNIST": (1, 10),
+        "PathMNIST": (3, 9),
+        "TissueMNIST": (1, 8),
+    }
+    return num_channels_and_classes[dataset]
+
+
 # Transform image to tensor and normalize features from [0,255] to [0,1]
 TRANSFORM = transforms.Compose(
     [
