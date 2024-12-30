@@ -9,6 +9,7 @@ from src.utils.data_entry import (
     get_CIFAR100_dataset,
     get_MNIST_dataset,
     get_MedMNIST_dataset,
+    get_num_channels_and_classes_of_dataset,
 )
 from src.utils.data_processing import (
     split_dataset_by_rate,
@@ -21,13 +22,16 @@ from src.attack.membership_inference_attack import (
     membership_inference_attack,
 )
 
-# matplotlib.use("tkagg")
 
-CUDA_INDEX = 0
+CUDA_INDEX = 1
 DEVICE = f"cuda:{CUDA_INDEX}"
 
-NUM_CHANNELS = 3
-NUM_CLASSES = 9
+DATASET = "CIFAR100"
+# DATASET = "PathMNIST"
+# DATASET = "TissueMNIST"
+# DATASET = "MNIST"
+NUM_CHANNELS, NUM_CLASSES = get_num_channels_and_classes_of_dataset(DATASET)
+
 BATCH_SIZE = 64
 NUM_EPOCHS = 10
 NUM_EPOCHS_UNLEARN = 5
@@ -41,7 +45,7 @@ def get_model_trainer():
     # return get_resnet50_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
 
 
-def get_metrics(
+def get_model_performance_metrics(
     model_trainer: ModelTrainer,
     all_train_dataloader: torch.utils.data.DataLoader,
     forget_train_dataloader: torch.utils.data.DataLoader,
@@ -97,6 +101,71 @@ def get_metrics(
         }
 
 
+def get_mia_metrics(
+    model: torch.nn.Module,
+    retain_train_dataset: torch.utils.data.Dataset,
+    forget_train_dataset: torch.utils.data.Dataset,
+    test_dataset: torch.utils.data.Dataset,
+    path_attack_models: str,
+) -> dict:
+    return {
+        "mia_retain_as_positive": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            retain_train_dataset,
+            None,
+            path_attack_models,
+            DEVICE,
+        ),
+        "mia_forget_as_positive": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            forget_train_dataset,
+            None,
+            path_attack_models,
+            DEVICE,
+        ),
+        "mia_test_as_positive": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            test_dataset,
+            None,
+            path_attack_models,
+            DEVICE,
+        ),
+        "mia_retain_as_negative": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            None,
+            retain_train_dataset,
+            path_attack_models,
+            DEVICE,
+        ),
+        "mia_forget_as_negative": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            None,
+            forget_train_dataset,
+            path_attack_models,
+            DEVICE,
+        ),
+        "mia_test_as_negative": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            None,
+            test_dataset,
+            path_attack_models,
+            DEVICE,
+        ),
+    }
+
+
 def train_target_model(
     path_unlearning_datasets: str,
     path_target_model: str,
@@ -139,42 +208,20 @@ def train_target_model(
         train_end_time = time.perf_counter()
         metrics.append(
             dict(
-                **get_metrics(
+                **get_model_performance_metrics(
                     model_trainer,
                     train_dataloader,
                     forget_train_dataloader,
                     retain_train_dataloader,
                     test_dataloader,
                 ),
-                **{
-                    "mia_retain": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        retain_train_dataset,
-                        None,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_forget": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        forget_train_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_test": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        test_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                },
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    test_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -233,42 +280,20 @@ def retain(
         train_end_time = time.perf_counter()
         metrics.append(
             dict(
-                **get_metrics(
+                **get_model_performance_metrics(
                     model_trainer,
                     train_dataloader,
                     forget_train_dataloader,
                     retain_train_dataloader,
                     test_dataloader,
                 ),
-                **{
-                    "mia_retain": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        retain_train_dataset,
-                        None,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_forget": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        forget_train_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_test": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        test_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                },
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    test_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -330,42 +355,20 @@ def catastrophic_unlearn(
         train_end_time = time.perf_counter()
         metrics.append(
             dict(
-                **get_metrics(
+                **get_model_performance_metrics(
                     model_trainer,
                     train_dataloader,
                     forget_train_dataloader,
                     retain_train_dataloader,
                     test_dataloader,
                 ),
-                **{
-                    "mia_retain": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        retain_train_dataset,
-                        None,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_forget": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        forget_train_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_test": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        test_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                },
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    test_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -433,42 +436,20 @@ def relabeling_unlearn(
         train_end_time = time.perf_counter()
         metrics.append(
             dict(
-                **get_metrics(
+                **get_model_performance_metrics(
                     model_trainer,
                     train_dataloader,
                     forget_train_dataloader,
                     retain_train_dataloader,
                     test_dataloader,
                 ),
-                **{
-                    "mia_retain": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        retain_train_dataset,
-                        None,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_forget": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        forget_train_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_test": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        test_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                },
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    test_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -541,42 +522,20 @@ def training_of_amnesiac_unlearning(
         train_end_time = time.perf_counter()
         metrics.append(
             dict(
-                **get_metrics(
+                **get_model_performance_metrics(
                     model_trainer,
                     train_dataloader,
                     forget_train_dataloader,
                     retain_train_dataloader,
                     test_dataloader,
                 ),
-                **{
-                    "mia_retain": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        retain_train_dataset,
-                        None,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_forget": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        forget_train_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_test": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        test_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                },
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    test_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -651,42 +610,20 @@ def amnesiac_unlearning(
         train_end_time = time.perf_counter()
         metrics.append(
             dict(
-                **get_metrics(
+                **get_model_performance_metrics(
                     model_trainer,
                     train_dataloader,
                     forget_train_dataloader,
                     retain_train_dataloader,
                     test_dataloader,
                 ),
-                **{
-                    "mia_retain": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        retain_train_dataset,
-                        None,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_forget": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        forget_train_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                    "mia_test": membership_inference_attack(
-                        NUM_CLASSES,
-                        BATCH_SIZE,
-                        model_trainer.model,
-                        None,
-                        test_dataset,
-                        path_attack_models,
-                        DEVICE,
-                    ),
-                },
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    test_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -705,9 +642,16 @@ def amnesiac_unlearning(
 
 
 def split_unlearning_datasets(path_unlearning_datasets: str):
-    train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
-    # train_dataset, test_dataset = get_CIFAR100_dataset()
-    # train_dataset, test_dataset = get_MNIST_dataset()
+    if DATASET == "CIFAR100":
+        train_dataset, test_dataset = get_CIFAR100_dataset()
+    elif DATASET == "PathMNIST":
+        train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
+    elif DATASET == "TissueMNIST":
+        train_dataset, test_dataset = get_MedMNIST_dataset("tissuemnist")
+    elif DATASET == "MNIST":
+        train_dataset, test_dataset = get_MNIST_dataset()
+    else:
+        raise Exception
 
     forget_train_dataset, retain_train_dataset = split_dataset_by_rate(
         train_dataset, UNLEARNING_RATE
@@ -770,6 +714,8 @@ def main():
     # PATH_RELABELING_METRICS = f"data/relabeling_metrics_{DATETIME}.pt"
 
     # hyperparameter
+    logger_regular.info("=== UNLEARNING BY RATE ===")
+    logger_regular.info(f"DATASET: {DATASET}")
     logger_regular.info(f"NUM_CHANNELS: {NUM_CHANNELS}, NUM_CLASSES: {NUM_CLASSES}")
     logger_regular.info(f"BATCH_SIZE: {BATCH_SIZE}, NUM_EPOCH: {NUM_EPOCHS}")
     logger_regular.info(f"NUM_EPOCHS_UNLEARN: {NUM_EPOCHS_UNLEARN}")
@@ -823,6 +769,7 @@ def main():
     logger_regular.info(
         f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
     )
+    logger_regular.info("=== Completed ===")
 
 
 def plot_metrics(
@@ -834,43 +781,17 @@ def plot_metrics(
     title: str,
 ):
     for dataset_type in dataset_types:
-        if metrics_type == "confusion_matrix":
-            # ax.axis("off")
-            # table = ax.table(
-            #     cellText=np.array(
-            #         [
-            #             [
-            #                 data[dataset_type][metrics_type][1][1],
-            #                 data[dataset_type][metrics_type][1][0],
-            #                 data[dataset_type][metrics_type][0][1],
-            #                 data[dataset_type][metrics_type][0][0],
-            #             ]
-            #             for data in metrics
-            #         ]
-            #     ).T,
-            #     colLabels=x,
-            #     rowLabels=["tp", "fn", "fp", "tn"],
-            # )
-            # table.auto_set_font_size(False)
-            # table.set_fontsize(8)
-            # ax.bar(
-            #     x,
-            #     [data[dataset_type][metrics_type][1][1] for data in metrics],
-            #     label=dataset_type,
-            # )
-            pass
-        else:
-            ax.plot(
-                x,
-                [data[dataset_type][metrics_type] for data in metrics],
-                label=dataset_type,
-            )
+        ax.plot(
+            x,
+            [data[dataset_type][metrics_type] for data in metrics],
+            label=dataset_type,
+        )
     ax.set_title(f"{metrics_type} on {title}")
     ax.set_xlabel("Epoch")
     ax.set_ylabel(metrics_type)
 
 
-def show_metrics(DATETIME=NOW, is_show=True):
+def show_metrics(DATETIME=NOW, is_save=True):
     # DATETIME = "2024-12-21-18:51:45"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
@@ -880,7 +801,14 @@ def show_metrics(DATETIME=NOW, is_show=True):
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
     # DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
-    DATASET_TYPES = ["mia_retain", "mia_forget", "mia_test"]
+    DATASET_TYPES = [
+        "mia_retain_as_positive",
+        "mia_forget_as_positive",
+        "mia_test_as_positive",
+        "mia_retain_as_negative",
+        "mia_forget_as_negative",
+        "mia_test_as_negative",
+    ]
     METRICS_TYPES = [
         "accuracy",
         "auroc",
@@ -934,7 +862,7 @@ def show_metrics(DATETIME=NOW, is_show=True):
         )
 
     axes[0][0].set_xlim([-1, NUM_EPOCHS + NUM_EPOCHS_UNLEARN])
-    axes[0][0].set_ylim([0, 1])
+    axes[0][0].set_ylim([-0.1, 1.1])
     axes[0][3].legend(
         loc="upper left",
         bbox_to_anchor=(
@@ -944,12 +872,12 @@ def show_metrics(DATETIME=NOW, is_show=True):
         borderaxespad=0,
     )
 
-    plt.suptitle(f"MIA to unlearning on resnet18 trained on CIFAR100({DATETIME})")
+    plt.suptitle(f"MIA to unlearning on resnet18 trained on {DATASET} ({DATETIME})")
     plt.subplots_adjust(hspace=0.5)
-    if is_show:
-        plt.show()
+    if is_save:
+        plt.savefig(f"image/unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png")
     else:
-        plt.savefig(f"image/unlearning_resnet18_trained_on_CIFAR100_{DATETIME}.png")
+        plt.show()
 
 
 def show_confusion_matrix(DATETIME=NOW):
