@@ -177,6 +177,9 @@ def generate_attack_datasets_and_save(
             DEVICE,
         )
         for target_class in range(NUM_CLASSES):
+            logger_regular.debug(
+                f"Class {target_class}: {len(predictions[target_class])}"
+            )
             all_predictions[target_class].extend(predictions[target_class])
             all_labels[target_class].extend(labels[target_class])
 
@@ -427,7 +430,7 @@ def show_metrics(DATETIME=NOW, is_save=True):
     for epoch in range(NUM_EPOCHS):
         predictions = []
         targets = []
-        for target_class in range(NUM_EPOCHS):
+        for target_class in range(NUM_CLASSES):
             predictions.append(predictions_of_each_class[target_class][epoch])
             targets.append(targets_of_each_class[target_class][epoch])
         metrics = calc_metrics(torch.cat(predictions), torch.cat(targets))

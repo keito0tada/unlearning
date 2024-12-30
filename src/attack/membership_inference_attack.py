@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from typing import Callable, Optional
+import time, datetime
 from src.log.logger import logger_regular, logger_overwrite
 from src.utils.binary_metrics import calc_metrics
 from src.model_trainer.attack_model import AttackModelTrainer
@@ -118,11 +119,11 @@ def attack(
         attack_model_trainer.model = attack_model_trainer.model.to("cpu")
 
         metrics = calc_metrics(prediction, target)
-        logger_regular.info(
-            f"Whole | Accuracy: {metrics['accuracy']}, Precision: {metrics['precision']}, Recall: {metrics['recall']}, f1_score: {metrics['f1_score']}, AUROC: {metrics['auroc']}"
+        logger_regular.debug(
+            f"Class {target_class} | Accuracy: {metrics['accuracy']}, Precision: {metrics['precision']}, Recall: {metrics['recall']}, f1_score: {metrics['f1_score']}, AUROC: {metrics['auroc']}"
         )
-        logger_regular.info(
-            f"Whole | tp: {metrics['confusion_matrix'][0][0]}, fn: {metrics['confusion_matrix'][0][1]}, fp: {metrics['confusion_matrix'][1][0]}, tn: {metrics['confusion_matrix'][1][1]}"
+        logger_regular.debug(
+            f"Class {target_class} | tp: {metrics['confusion_matrix'][0][0]}, fn: {metrics['confusion_matrix'][0][1]}, fp: {metrics['confusion_matrix'][1][0]}, tn: {metrics['confusion_matrix'][1][1]}"
         )
 
         attack_prediction_and_target_datasets.append((prediction, target))
@@ -139,15 +140,17 @@ def membership_inference_attack(
     path_attack_models: str,
     device: str,
 ):
+    logger_regular.debug("=== Membership Inference Attack ===")
+    start_time = time.perf_counter()
     predictions, labels = generate_attack_datasets(
         num_classes, target_model, in_dataset, out_dataset, device
     )
 
     attack_prediction_and_target_datasets = attack(
-        num_classes, batch_size, path_attack_models, predictions, labels
+        num_classes, batch_size, path_attack_models, predictions, labels, device
     )
 
-    accuracy, precision, recall, f1_score, confusion_matrix, auroc = calc_metrics(
+    metrics = calc_metrics(
         torch.cat(
             [
                 output
@@ -164,16 +167,14 @@ def membership_inference_attack(
         ),
     )
     logger_regular.info(
-        f"Whole | Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, f1_score: {f1_score}, AUROC: {auroc}"
+        f"Whole | Accuracy: {metrics['accuracy']}, Precision: {metrics['precision']}, Recall: {metrics['recall']}, f1_score: {metrics['f1_score']}, AUROC: {metrics['auroc']}"
     )
     logger_regular.info(
-        f"Whole | tp: {confusion_matrix[1][1]}, fn: {confusion_matrix[1][0]}, fp: {confusion_matrix[0][1]}, tn: {confusion_matrix[0][0]}"
+        f"Whole | tp: {metrics['confusion_matrix'][0][0]}, fn: {metrics['confusion_matrix'][0][1]}, fp: {metrics['confusion_matrix'][1][0]}, tn: {metrics['confusion_matrix'][1][1]}"
     )
-    return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1_score": f1_score,
-        "confusion_matrix": confusion_matrix,
-        "auroc": auroc,
-    }
+
+    logger_regular.info(
+        f"MIA completed | time: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
+    )
+
+    return metrics
