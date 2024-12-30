@@ -1,8 +1,9 @@
 import torch
+from torch.optim.lr_scheduler import _LRScheduler
 import time
 import datetime
 import gc
-from typing import Callable
+from typing import Callable, Optional
 import sys
 
 from src.log.logger import logger_regular, logger_overwrite
@@ -15,11 +16,13 @@ class ModelTrainer:
         optimizer: torch.optim.Optimizer,
         criterion: Callable[[], torch.Tensor],
         device: str,
+        scheduler: Optional[_LRScheduler] = None,
     ):
         self.model = model
         self.optimizer = optimizer
         self.criterion = criterion
         self.device = device
+        self.scheduler = scheduler
 
     def train(
         self,
@@ -223,6 +226,8 @@ class ModelTrainer:
                 epoch=epoch, train_dataloader=train_dataloader, log_label=log_label
             )
             self.test(test_dataloader=test_dataloader, log_label=log_label)
+            if self.scheduler is not None:
+                self.scheduler.step()
 
         logger_regular.info(
             f"{log_label} | Time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
