@@ -136,33 +136,33 @@ def get_mia_metrics(
             path_attack_models,
             DEVICE,
         ),
-        "mia_retain_as_negative": membership_inference_attack(
-            NUM_CLASSES,
-            BATCH_SIZE,
-            model,
-            None,
-            retain_train_dataset,
-            path_attack_models,
-            DEVICE,
-        ),
-        "mia_forget_as_negative": membership_inference_attack(
-            NUM_CLASSES,
-            BATCH_SIZE,
-            model,
-            None,
-            forget_train_dataset,
-            path_attack_models,
-            DEVICE,
-        ),
-        "mia_test_as_negative": membership_inference_attack(
-            NUM_CLASSES,
-            BATCH_SIZE,
-            model,
-            None,
-            test_dataset,
-            path_attack_models,
-            DEVICE,
-        ),
+        # "mia_retain_as_negative": membership_inference_attack(
+        #     NUM_CLASSES,
+        #     BATCH_SIZE,
+        #     model,
+        #     None,
+        #     retain_train_dataset,
+        #     path_attack_models,
+        #     DEVICE,
+        # ),
+        # "mia_forget_as_negative": membership_inference_attack(
+        #     NUM_CLASSES,
+        #     BATCH_SIZE,
+        #     model,
+        #     None,
+        #     forget_train_dataset,
+        #     path_attack_models,
+        #     DEVICE,
+        # ),
+        # "mia_test_as_negative": membership_inference_attack(
+        #     NUM_CLASSES,
+        #     BATCH_SIZE,
+        #     model,
+        #     None,
+        #     test_dataset,
+        #     path_attack_models,
+        #     DEVICE,
+        # ),
     }
 
 
@@ -791,7 +791,7 @@ def plot_metrics(
     ax.set_ylabel(metrics_type)
 
 
-def show_metrics(DATETIME=NOW, is_save=True):
+def show_metrics(DATETIME=NOW, is_model_performance=True, is_save=True):
     # DATETIME = "2024-12-21-18:51:45"
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
@@ -800,15 +800,18 @@ def show_metrics(DATETIME=NOW, is_save=True):
     PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
-    # DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
-    DATASET_TYPES = [
-        "mia_retain_as_positive",
-        "mia_forget_as_positive",
-        "mia_test_as_positive",
-        "mia_retain_as_negative",
-        "mia_forget_as_negative",
-        "mia_test_as_negative",
-    ]
+    if is_model_performance:
+        DATASET_TYPES = ["all_train", "forget_train", "retain_train", "all_test"]
+    else:
+        DATASET_TYPES = [
+            "mia_retain_as_positive",
+            "mia_forget_as_positive",
+            "mia_test_as_positive",
+            # "mia_retain_as_negative",
+            # "mia_forget_as_negative",
+            # "mia_test_as_negative",
+        ]
+
     METRICS_TYPES = [
         "accuracy",
         "auroc",
@@ -872,12 +875,26 @@ def show_metrics(DATETIME=NOW, is_save=True):
         borderaxespad=0,
     )
 
-    plt.suptitle(f"MIA to unlearning on resnet18 trained on {DATASET} ({DATETIME})")
-    plt.subplots_adjust(hspace=0.5)
-    if is_save:
-        plt.savefig(f"image/unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png")
+    if is_model_performance:
+        plt.suptitle(
+            f"Model Performance | unlearning resnet18 trained on {DATASET} ({DATETIME})"
+        )
+        plt.subplots_adjust(hspace=0.5)
+        if is_save:
+            plt.savefig(
+                f"image/performance_unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png"
+            )
+        else:
+            plt.show()
     else:
-        plt.show()
+        plt.suptitle(f"MIA | unlearning resnet18 trained on {DATASET} ({DATETIME})")
+        plt.subplots_adjust(hspace=0.5)
+        if is_save:
+            plt.savefig(
+                f"image/mia_unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png"
+            )
+        else:
+            plt.show()
 
 
 def show_confusion_matrix(DATETIME=NOW):
