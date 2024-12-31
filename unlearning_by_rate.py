@@ -821,6 +821,8 @@ def show_metrics(DATETIME=NOW, is_model_performance=True, is_save=True):
         # "confusion_matrix",
     ]
 
+    logger_regular.info(f"show metrics | {DATETIME}")
+
     metrics_target = torch.load(PATH_TARGET_METRICS)
     metrics_retain = torch.load(PATH_RETAIN_METRICS)
     metrics_catastrophic = torch.load(PATH_CATASTROPHIC_METRICS)
@@ -877,21 +879,23 @@ def show_metrics(DATETIME=NOW, is_model_performance=True, is_save=True):
 
     if is_model_performance:
         plt.suptitle(
-            f"Model Performance | unlearning resnet18 trained on {DATASET} ({DATETIME})"
+            f"Model Performance | unlearning resnet18 trained on {DATASET} (Unlearning Rate: {UNLEARNING_RATE}) ({DATETIME})"
         )
         plt.subplots_adjust(hspace=0.5)
         if is_save:
             plt.savefig(
-                f"image/performance_unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png"
+                f"image/performance_unlearning_resnet18_trained_on_{DATASET}_{UNLEARNING_RATE}_{DATETIME}.png"
             )
         else:
             plt.show()
     else:
-        plt.suptitle(f"MIA | unlearning resnet18 trained on {DATASET} ({DATETIME})")
+        plt.suptitle(
+            f"MIA | unlearning resnet18 trained on {DATASET} (Unlearning Rate: {UNLEARNING_RATE}) ({DATETIME})"
+        )
         plt.subplots_adjust(hspace=0.5)
         if is_save:
             plt.savefig(
-                f"image/mia_unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png"
+                f"image/mia_unlearning_resnet18_trained_on_{DATASET}_{UNLEARNING_RATE}_{DATETIME}.png"
             )
         else:
             plt.show()
@@ -918,6 +922,25 @@ def show_confusion_matrix(DATETIME=NOW):
         print(confusion_matrix)
 
 
-# show_metrics('2024-12-23-01:19:27')
-# show_metrics('2024-12-23-02:53:54')
-# show_metrics('2024-12-23-04:28:27')
+# main()
+# show_metrics(NOW)
+# NOW = now()
+UNLEARNING_RATE = 0.1
+main()
+show_metrics(NOW)
+show_metrics(NOW, False)
+NOW = now()
+UNLEARNING_RATE = 0.15
+main()
+show_metrics(NOW)
+show_metrics(NOW, False)
+NOW = now()
+UNLEARNING_RATE = 0.2
+main()
+show_metrics(NOW)
+show_metrics(NOW, False)
+NOW = now()
+UNLEARNING_RATE = 0.3
+main()
+show_metrics(NOW)
+show_metrics(NOW, False)
