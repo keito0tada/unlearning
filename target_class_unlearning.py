@@ -9,6 +9,7 @@ from src.utils.data_entry import (
     get_CIFAR100_dataset,
     get_MNIST_dataset,
     get_MedMNIST_dataset,
+    get_num_channels_and_classes_of_dataset,
 )
 from src.utils.data_processing import (
     split_dataset_by_target_classes,
@@ -17,20 +18,26 @@ from src.utils.data_processing import (
 from src.log.logger import logger_overwrite, logger_regular, NOW
 from src.utils.model_trainer_templates import get_resnet18_trainer, get_resnet50_trainer
 from src.utils.multiclass_metrics import calc_metrics
+from src.attack.membership_inference_attack import (
+    membership_inference_attack,
+)
 
-# matplotlib.use("tkagg")
 
 CUDA_INDEX = 0
 DEVICE = f"cuda:{CUDA_INDEX}"
 
-NUM_CHANNELS = 3
-NUM_CLASSES = 100
-BATCH_SIZE = 32
-NUM_EPOCHS = 10
-NUM_EPOCHS_UNLEARN = 5
+DATASET = "CIFAR100"
+# DATASET = "PathMNIST"
+# DATASET = "TissueMNIST"
+# DATASET = "MNIST"
+NUM_CHANNELS, NUM_CLASSES = get_num_channels_and_classes_of_dataset(DATASET)
+
+BATCH_SIZE = 64
+NUM_EPOCHS = 1
+NUM_EPOCHS_UNLEARN = 1
 AMNESIAC_RATE = 1
 
-TARGET_CLASSES = [3]
+TARGET_CLASSES = [81]
 
 
 def get_model_trainer():
@@ -38,7 +45,7 @@ def get_model_trainer():
     # return get_resnet50_trainer(NUM_CHANNELS, NUM_CLASSES, DEVICE)
 
 
-def get_metrics(
+def get_model_performance_metrics(
     model_trainer: ModelTrainer,
     all_train_dataloader: torch.utils.data.DataLoader,
     forget_train_dataloader: torch.utils.data.DataLoader,
@@ -117,8 +124,76 @@ def get_metrics(
         }
 
 
+def get_mia_metrics(
+    model: torch.nn.Module,
+    retain_train_dataset: torch.utils.data.Dataset,
+    forget_train_dataset: torch.utils.data.Dataset,
+    # test_dataset: torch.utils.data.Dataset,
+    path_attack_models: str,
+) -> dict:
+    return {
+        "mia_retain_as_positive": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            retain_train_dataset,
+            None,
+            path_attack_models,
+            DEVICE,
+        ),
+        "mia_forget_as_positive": membership_inference_attack(
+            NUM_CLASSES,
+            BATCH_SIZE,
+            model,
+            forget_train_dataset,
+            None,
+            path_attack_models,
+            DEVICE,
+        ),
+        # "mia_test_as_positive": membership_inference_attack(
+        #     NUM_CLASSES,
+        #     BATCH_SIZE,
+        #     model,
+        #     test_dataset,
+        #     None,
+        #     path_attack_models,
+        #     DEVICE,
+        # ),
+        # "mia_retain_as_negative": membership_inference_attack(
+        #     NUM_CLASSES,
+        #     BATCH_SIZE,
+        #     model,
+        #     None,
+        #     retain_train_dataset,
+        #     path_attack_models,
+        #     DEVICE,
+        # ),
+        # "mia_forget_as_negative": membership_inference_attack(
+        #     NUM_CLASSES,
+        #     BATCH_SIZE,
+        #     model,
+        #     None,
+        #     forget_train_dataset,
+        #     path_attack_models,
+        #     DEVICE,
+        # ),
+        # "mia_test_as_negative": membership_inference_attack(
+        #     NUM_CLASSES,
+        #     BATCH_SIZE,
+        #     model,
+        #     None,
+        #     test_dataset,
+        #     path_attack_models,
+        #     DEVICE,
+        # ),
+    }
+
+
 def train_target_model(
-    path_unlearning_datasets: str, path_target_model: str, path_target_metrics: str
+    path_unlearning_datasets: str,
+    path_target_model: str,
+    path_target_metrics: str,
+    path_attack_models: str,
 ):
     LOG_LABEL = "Target model"
 
@@ -163,14 +238,22 @@ def train_target_model(
         )
         train_end_time = time.perf_counter()
         metrics.append(
-            get_metrics(
-                model_trainer,
-                train_dataloader,
-                forget_train_dataloader,
-                retain_train_dataloader,
-                test_dataloader,
-                forget_test_dataloader,
-                retain_test_dataloader,
+            dict(
+                **get_model_performance_metrics(
+                    model_trainer,
+                    train_dataloader,
+                    forget_train_dataloader,
+                    retain_train_dataloader,
+                    test_dataloader,
+                    forget_test_dataloader,
+                    retain_test_dataloader,
+                ),
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -189,7 +272,10 @@ def train_target_model(
 
 
 def retain(
-    path_unlearning_datasets: str, path_retain_model: str, path_retain_metrics: str
+    path_unlearning_datasets: str,
+    path_retain_model: str,
+    path_retain_metrics: str,
+    path_attack_models: str,
 ):
     LOG_LABEL = "Retain model"
     (
@@ -233,14 +319,22 @@ def retain(
         )
         train_end_time = time.perf_counter()
         metrics.append(
-            get_metrics(
-                model_trainer,
-                train_dataloader,
-                forget_train_dataloader,
-                retain_train_dataloader,
-                test_dataloader,
-                forget_test_dataloader,
-                retain_test_dataloader,
+            dict(
+                **get_model_performance_metrics(
+                    model_trainer,
+                    train_dataloader,
+                    forget_train_dataloader,
+                    retain_train_dataloader,
+                    test_dataloader,
+                    forget_test_dataloader,
+                    retain_test_dataloader,
+                ),
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -255,7 +349,7 @@ def retain(
 
     model_trainer.save(path_retain_model)
     torch.save(metrics, path_retain_metrics)
-    logger_regular.info(f"Accuracies is saved at {path_retain_metrics}")
+    logger_regular.info(f"Metrics is saved at {path_retain_metrics}")
 
 
 def catastrophic_unlearn(
@@ -263,6 +357,7 @@ def catastrophic_unlearn(
     path_target_model: str,
     path_catastrophic_unlearn_model: str,
     path_catastrophic_metrics: str,
+    path_attack_models: str,
 ):
     LOG_LABEL = "Catastrophic model"
     (
@@ -308,14 +403,22 @@ def catastrophic_unlearn(
         )
         train_end_time = time.perf_counter()
         metrics.append(
-            get_metrics(
-                model_trainer,
-                train_dataloader,
-                forget_train_dataloader,
-                retain_train_dataloader,
-                test_dataloader,
-                forget_test_dataloader,
-                retain_test_dataloader,
+            dict(
+                **get_model_performance_metrics(
+                    model_trainer,
+                    train_dataloader,
+                    forget_train_dataloader,
+                    retain_train_dataloader,
+                    test_dataloader,
+                    forget_test_dataloader,
+                    retain_test_dataloader,
+                ),
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -330,7 +433,7 @@ def catastrophic_unlearn(
 
     model_trainer.save(path_catastrophic_unlearn_model)
     torch.save(metrics, path_catastrophic_metrics)
-    logger_regular.info(f"Accuracies is saved at {path_catastrophic_metrics}")
+    logger_regular.info(f"Metrics is saved at {path_catastrophic_metrics}")
 
 
 def relabeling_unlearn(
@@ -338,6 +441,7 @@ def relabeling_unlearn(
     path_target_model: str,
     path_relabeling_unlearn_model: str,
     path_relabeling_metrics: str,
+    path_attack_models: str,
 ):
     LOG_LABEL = "Relabeling model"
 
@@ -388,8 +492,8 @@ def relabeling_unlearn(
             log_label=LOG_LABEL,
         )
         train_end_time = time.perf_counter()
-        metrics.append(
-            get_metrics(
+        dict(
+            **get_model_performance_metrics(
                 model_trainer,
                 train_dataloader,
                 forget_train_dataloader,
@@ -397,7 +501,13 @@ def relabeling_unlearn(
                 test_dataloader,
                 forget_test_dataloader,
                 retain_test_dataloader,
-            )
+            ),
+            **get_mia_metrics(
+                model_trainer.model,
+                retain_train_dataset,
+                forget_train_dataset,
+                path_attack_models,
+            ),
         )
         test_end_time = time.perf_counter()
         train_time += datetime.timedelta(seconds=train_end_time - start_time)
@@ -411,7 +521,7 @@ def relabeling_unlearn(
 
     model_trainer.save(path_relabeling_unlearn_model)
     torch.save(metrics, path_relabeling_metrics)
-    logger_regular.info(f"Accuracies is saved at {path_relabeling_metrics}")
+    logger_regular.info(f"Metrics is saved at {path_relabeling_metrics}")
 
 
 def training_of_amnesiac_unlearning(
@@ -419,6 +529,7 @@ def training_of_amnesiac_unlearning(
     path_amnesiac_trained_model: str,
     path_amnesiac_deltas: str,
     path_amnesiac_training_metrics: str,
+    path_attack_models: str,
 ):
     LOG_LABEL = "Training of amnesiac unlearning"
     (
@@ -476,14 +587,22 @@ def training_of_amnesiac_unlearning(
                 deltas[batch][key] = epoch_deltas[batch][key] + deltas[batch][key]
         train_end_time = time.perf_counter()
         metrics.append(
-            get_metrics(
-                model_trainer,
-                train_dataloader,
-                forget_train_dataloader,
-                retain_train_dataloader,
-                test_dataloader,
-                forget_test_dataloader,
-                retain_test_dataloader,
+            dict(
+                **get_model_performance_metrics(
+                    model_trainer,
+                    train_dataloader,
+                    forget_train_dataloader,
+                    retain_train_dataloader,
+                    test_dataloader,
+                    forget_test_dataloader,
+                    retain_test_dataloader,
+                ),
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -505,6 +624,7 @@ def amnesiac_unlearning(
     path_amnesiac_target_model: str,
     path_amnesiac_deltas: str,
     path_amnesiac_unlearning_accuracies: str,
+    path_attack_models: str,
 ):
     LOG_LABEL = "Training of amnesiac unlearning"
     (
@@ -564,14 +684,22 @@ def amnesiac_unlearning(
         )
         train_end_time = time.perf_counter()
         metrics.append(
-            get_metrics(
-                model_trainer,
-                train_dataloader,
-                forget_train_dataloader,
-                retain_train_dataloader,
-                test_dataloader,
-                forget_test_dataloader,
-                retain_test_dataloader,
+            dict(
+                **get_model_performance_metrics(
+                    model_trainer,
+                    train_dataloader,
+                    forget_train_dataloader,
+                    retain_train_dataloader,
+                    test_dataloader,
+                    forget_test_dataloader,
+                    retain_test_dataloader,
+                ),
+                **get_mia_metrics(
+                    model_trainer.model,
+                    retain_train_dataset,
+                    forget_train_dataset,
+                    path_attack_models,
+                ),
             )
         )
         test_end_time = time.perf_counter()
@@ -590,8 +718,16 @@ def amnesiac_unlearning(
 
 
 def split_unlearning_datasets(path_unlearning_datasets: str):
-    # train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
-    train_dataset, test_dataset = get_CIFAR100_dataset()
+    if DATASET == "CIFAR100":
+        train_dataset, test_dataset = get_CIFAR100_dataset()
+    elif DATASET == "PathMNIST":
+        train_dataset, test_dataset = get_MedMNIST_dataset("pathmnist")
+    elif DATASET == "TissueMNIST":
+        train_dataset, test_dataset = get_MedMNIST_dataset("tissuemnist")
+    elif DATASET == "MNIST":
+        train_dataset, test_dataset = get_MNIST_dataset()
+    else:
+        raise Exception
 
     forget_train_dataset, retain_train_dataset = split_dataset_by_target_classes(
         train_dataset, target_classes=TARGET_CLASSES
@@ -642,6 +778,8 @@ def main():
     PATH_AMNESIAC_DELTAS = f"data/amnesiac_deltas_{DATETIME}.pt"
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
+    PATH_ATTACK_MODELS = f"model/attack_model_{{}}_2024-12-27-05:38:57.pt"
+
     # ----
     # PATH_UNLEARNING_DATASETS = f"data/unlearning_datasets_2024-12-10-11:39:54.pt"
 
@@ -663,6 +801,8 @@ def main():
     # PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
     # hyperparameter
+    logger_regular.info("=== TARGE CLASS UNLEARNING ===")
+    logger_regular.info(f"DATASET: {DATASET}")
     logger_regular.info(f"NUM_CHANNELS: {NUM_CHANNELS}, NUM_CLASSES: {NUM_CLASSES}")
     logger_regular.info(f"BATCH_SIZE: {BATCH_SIZE}, NUM_EPOCH: {NUM_EPOCHS}")
     logger_regular.info(
@@ -673,83 +813,73 @@ def main():
     start_time = time.perf_counter()
 
     split_unlearning_datasets(PATH_UNLEARNING_DATASETS)
-    train_target_model(PATH_UNLEARNING_DATASETS, PATH_TARGET_MODEL, PATH_TARGET_METRICS)
-    retain(PATH_UNLEARNING_DATASETS, PATH_RETAIN_MODEL, PATH_RETAIN_METRICS)
+    train_target_model(
+        PATH_UNLEARNING_DATASETS,
+        PATH_TARGET_MODEL,
+        PATH_TARGET_METRICS,
+        PATH_ATTACK_MODELS,
+    )
+    retain(
+        PATH_UNLEARNING_DATASETS,
+        PATH_RETAIN_MODEL,
+        PATH_RETAIN_METRICS,
+        PATH_ATTACK_MODELS,
+    )
     catastrophic_unlearn(
         PATH_UNLEARNING_DATASETS,
         PATH_TARGET_MODEL,
         PATH_CATASTROPHIC_MODEL,
         PATH_CATASTROPHIC_METRICS,
+        PATH_ATTACK_MODELS,
     )
     relabeling_unlearn(
         PATH_UNLEARNING_DATASETS,
         PATH_TARGET_MODEL,
         PATH_RELABELING_MODEL,
         PATH_RELABELING_METRICS,
+        PATH_ATTACK_MODELS,
     )
     training_of_amnesiac_unlearning(
         PATH_UNLEARNING_DATASETS,
         PATH_AMNESIAC_MODEL,
         PATH_AMNESIAC_DELTAS,
         PATH_AMNESIAC_TRAINING_METRICS,
+        PATH_ATTACK_MODELS,
     )
     amnesiac_unlearning(
         PATH_UNLEARNING_DATASETS,
         PATH_AMNESIAC_MODEL,
         PATH_AMNESIAC_DELTAS,
         PATH_AMNESIAC_UNLEARNING_METRICS,
+        PATH_ATTACK_MODELS,
     )
 
     logger_regular.info(
         f"Whole time taken: {datetime.timedelta(seconds=time.perf_counter() - start_time)}"
     )
+    logger_regular.info("=== Completed ===")
 
 
 def plot_metrics(
     ax: matplotlib.axes.Axes,
     x: range,
     metrics: list[dict[str, dict]],
+    dataset_types: list[str],
     metrics_type: str,
     title: str,
 ):
-    ax.plot(
-        x,
-        [data["all_train"][metrics_type] for data in metrics],
-        label="All train dataset",
-    )
-    ax.plot(
-        x,
-        [data["forget_train"][metrics_type] for data in metrics],
-        label="Forget train dataset",
-    )
-    ax.plot(
-        x,
-        [data["retain_train"][metrics_type] for data in metrics],
-        label="Retain train dataset",
-    )
-    ax.plot(
-        x,
-        [data["all_test"][metrics_type] for data in metrics],
-        label="All test dataset",
-    )
-    ax.plot(
-        x,
-        [data["forget_test"][metrics_type] for data in metrics],
-        label="Forget test dataset",
-    )
-    ax.plot(
-        x,
-        [data["retain_test"][metrics_type] for data in metrics],
-        label="Retain test dataset",
-    )
-    print(next(iter(metrics)))
+    for dataset_type in dataset_types:
+        ax.plot(
+            x,
+            [data[dataset_type][metrics_type] for data in metrics],
+            label=dataset_type,
+        )
     ax.set_title(f"{metrics_type} on {title}")
     ax.set_xlabel("Epoch")
     ax.set_ylabel(metrics_type)
 
 
-def show_metrics():
-    DATETIME = "2024-12-11-12:05:23"
+def show_metrics(DATETIME=NOW, is_model_performance=True, is_save=True):
     PATH_TARGET_METRICS = f"data/target_metrics_{DATETIME}.pt"
     PATH_RETAIN_METRICS = f"data/retain_metrics_{DATETIME}.pt"
     PATH_CATASTROPHIC_METRICS = f"data/catastrophic_metrics_{DATETIME}.pt"
@@ -757,8 +887,25 @@ def show_metrics():
     PATH_AMNESIAC_TRAINING_METRICS = f"data/amnesiac_training_metrics_{DATETIME}.pt"
     PATH_AMNESIAC_UNLEARNING_METRICS = f"data/amnesiac_unlearning_metrics_{DATETIME}.pt"
 
-    NUM_EPOCHS = 10
-    NUM_EPOCHS_UNLEARN = 5
+    if is_model_performance:
+        DATASET_TYPES = [
+            "all_train",
+            "forget_train",
+            "retain_train",
+            "all_test",
+            "forget_test",
+            "retain_test",
+        ]
+    else:
+        DATASET_TYPES = [
+            "mia_retain_as_positive",
+            "mia_forget_as_positive",
+            # "mia_test_as_positive",
+            # "mia_retain_as_negative",
+            # "mia_forget_as_negative",
+            # "mia_test_as_negative",
+        ]
+
     METRICS_TYPES = [
         "accuracy",
         "auroc",
@@ -767,6 +914,8 @@ def show_metrics():
         "precision",
         "recall",
     ]
+
+    logger_regular.info(f"show metrics | {DATETIME}")
 
     metrics_target = torch.load(PATH_TARGET_METRICS)
     metrics_retain = torch.load(PATH_RETAIN_METRICS)
@@ -779,12 +928,18 @@ def show_metrics():
 
     for index, metrics_type in enumerate(METRICS_TYPES):
         plot_metrics(
-            axes[index][0], range(NUM_EPOCHS), metrics_retain, metrics_type, "Retain"
+            axes[index][0],
+            range(NUM_EPOCHS),
+            metrics_retain,
+            DATASET_TYPES,
+            metrics_type,
+            "Retain",
         )
         plot_metrics(
             axes[index][1],
             range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
             metrics_target + metrics_catastrophic,
+            DATASET_TYPES,
             metrics_type,
             "Catastrophic",
         )
@@ -792,6 +947,7 @@ def show_metrics():
             axes[index][2],
             range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
             metrics_target + metrics_relabeling,
+            DATASET_TYPES,
             metrics_type,
             "Relabeling",
         )
@@ -799,12 +955,13 @@ def show_metrics():
             axes[index][3],
             range(NUM_EPOCHS + NUM_EPOCHS_UNLEARN),
             metrics_amnesiac_training + metrics_amnesiac_unlearning,
+            DATASET_TYPES,
             metrics_type,
             "Amnesiac",
         )
 
     axes[0][0].set_xlim([-1, NUM_EPOCHS + NUM_EPOCHS_UNLEARN])
-    axes[0][0].set_ylim([0, 1])
+    axes[0][0].set_ylim([-0.1, 1.1])
     axes[0][3].legend(
         loc="upper left",
         bbox_to_anchor=(
@@ -814,9 +971,28 @@ def show_metrics():
         borderaxespad=0,
     )
 
-    plt.suptitle("Unlearning on resnet18 learning CIFAR100 (batch size: 32)")
-    plt.subplots_adjust(hspace=0.5)
-    plt.show()
+    if is_model_performance:
+        plt.suptitle(
+            f"Model Performance | unlearning resnet18 trained on {DATASET} ({DATETIME})"
+        )
+        plt.subplots_adjust(hspace=0.5)
+        if is_save:
+            plt.savefig(
+                f"image/performance_unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png"
+            )
+        else:
+            plt.show()
+    else:
+        plt.suptitle(f"MIA | unlearning resnet18 trained on {DATASET} ({DATETIME})")
+        plt.subplots_adjust(hspace=0.5)
+        if is_save:
+            plt.savefig(
+                f"image/mia_unlearning_resnet18_trained_on_{DATASET}_{DATETIME}.png"
+            )
+        else:
+            plt.show()
 
 
+main()
 show_metrics()
+show_metrics(is_model_performance=False)
