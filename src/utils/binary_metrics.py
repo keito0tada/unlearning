@@ -15,7 +15,9 @@ def calc_metrics(output: torch.Tensor, target: torch.Tensor):
         "precision": binary_precision(output, target).item(),
         "recall": binary_recall(output, target).item(),
         "f1_score": binary_f1_score(output, target).item(),
-        "confusion_matrix": binary_confusion_matrix(output, target),
+        "confusion_matrix": torch.flip(
+            binary_confusion_matrix(output, target), dims=[0, 1]
+        ),
         "auroc": binary_auroc(output, target).item(),
     }
 

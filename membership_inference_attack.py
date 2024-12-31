@@ -482,10 +482,10 @@ def show_metrics(DATETIME=NOW, is_save=True):
     table = axes[1][2].table(
         cellText=[
             [
-                metrics["confusion_matrix"][1][1].item(),
-                metrics["confusion_matrix"][1][0].item(),
-                metrics["confusion_matrix"][0][1].item(),
                 metrics["confusion_matrix"][0][0].item(),
+                metrics["confusion_matrix"][0][1].item(),
+                metrics["confusion_matrix"][1][0].item(),
+                metrics["confusion_matrix"][1][1].item(),
             ]
         ],
         colLabels=["tp", "fn", "fp", "tn"],
