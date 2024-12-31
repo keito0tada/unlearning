@@ -907,10 +907,10 @@ def show_confusion_matrix(DATETIME=NOW):
     data_type = "mia_forget"
     confusion_matrixes = [
         {
-            "tn": data[data_type]["confusion_matrix"][1][1].item(),
-            "fp": data[data_type]["confusion_matrix"][1][0].item(),
-            "fn": data[data_type]["confusion_matrix"][0][1].item(),
             "tp": data[data_type]["confusion_matrix"][0][0].item(),
+            "fn": data[data_type]["confusion_matrix"][0][1].item(),
+            "fp": data[data_type]["confusion_matrix"][1][0].item(),
+            "tn": data[data_type]["confusion_matrix"][1][1].item(),
         }
         for data in metrics_amnesiac_training + metrics_amnesiac_unlearning
     ]
